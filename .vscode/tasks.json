@@ -1,0 +1,95 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build debug",
+            "type": "process",
+            "command": "make",
+            "args": [
+                "PLATFORM=PLATFORM_DESKTOP",
+                "BUILD_MODE=DEBUG"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "windows": {
+                "command": "C:/raylib/w64devkit/bin/mingw32-make.exe",
+                "args": [
+                    "RAYLIB_PATH=C:/raylib/raylib",
+                    "BUILD_MODE=DEBUG"
+                ]
+            },
+            "osx": {
+                "args": [
+                    "BUILD_MODE=DEBUG"
+                ]
+            },
+            "linux": {
+                "args": [
+                    "DESTDIR=/home/linuxbrew/.linuxbrew",
+                    "BUILD_MODE=DEBUG"
+                ]
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "build release",
+            "type": "process",
+            "command": "make",
+            "args": [
+                "PLATFORM=PLATFORM_DESKTOP"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "windows": {
+                "command": "C:/raylib/w64devkit/bin/mingw32-make.exe",
+                "args": [
+                    "RAYLIB_PATH=C:/raylib/raylib"
+                ]
+            },
+            "osx": {
+                "args": []
+            },
+            "linux": {
+                "args": [
+                    "DESTDIR=/home/linuxbrew/.linuxbrew"
+                ]
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "detail": "compiler: C:\\raylib\\w64devkit\\bin\\g++.exe"
+        },
+        {
+            "label": "clean",
+            "type": "process",
+            "command": "make",
+            "args": [
+                "clean"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "windows": {
+                "command": "C:/raylib/w64devkit/bin/mingw32-make.exe",
+                "args": [
+                    "clean"
+                ]
+            },
+            "problemMatcher": []
+        }
+    ]
+}

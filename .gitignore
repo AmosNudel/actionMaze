@@ -1,0 +1,33 @@
+# ---- Build output ----------------------------------------------------------
+obj/
+*.o
+*.d
+*.exe
+*.dSYM/
+# The Linux/macOS binary. Leading slash so it can only mean the one at the root,
+# never a directory of the same name deeper in the tree.
+/ActionMaze
+
+# ---- Vendor asset downloads ------------------------------------------------
+# The original packs, kept locally as source material to cut new models out of.
+# Nothing in src/ reads them: everything the game loads was copied into assets/,
+# licence texts included. Re-download from the itch.io links in CREDITS.md.
+/KayKit Dungeon Pack 1.0/
+/KayKit_Character_Animations_1.1/
+/KayKit_Dungeon_Pack_1.1_FREE/
+/KayKit_Skeletons_1.1_FREE/
+/SBS - Planet Surface Skyboxes - Cubemap/
+
+# ---- Local tool state ------------------------------------------------------
+.claude/settings.local.json
+.claude/*.local.json
+
+# ---- Dev-time dumps --------------------------------------------------------
+# Written by the viewmodel editor (U key, see src/debug/ViewModelEditor.h).
+# A scratch file to paste out of, not an input the game reads.
+viewmodel_poses.txt
+
+# ---- OS cruft --------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini

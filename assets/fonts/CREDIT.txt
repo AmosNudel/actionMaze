@@ -1,0 +1,11 @@
+alagard.png
+  Font "Alagard" by Hewett Tsoi — freeware (https://www.dafont.com/alagard.font).
+  Sprite-font atlas by Ramon Santamaria (@raysan5), shipped with raylib as
+  examples/text/resources/sprite_fonts/alagard.png.
+
+  It is a raylib IMAGE FONT: 95 glyphs (ASCII 32..126) in 16px bands, separated by a
+  magenta (255,0,255) key colour. LoadFont() on a .png feeds it straight into
+  LoadFontFromImage(image, MAGENTA, 32) — no .fnt sidecar, no metrics file.
+
+  The glyphs are pure white, so DrawTextEx's tint multiply gives the colour asked for.
+  Do not recolour the atlas.
