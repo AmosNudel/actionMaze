@@ -166,7 +166,7 @@ void PickupManager::Draw(const Camera3D &camera) const
         const float halo = (missing || buff) ? Config::PickupAuraBuffHalo : Config::PickupAuraHalo;
 
         DrawAura(camera, *glow, at, pickup.at.y, colour, core, halo,
-                pickup.age*Config::PickupSpinRate);
+                pickup.age*Config::PickupSpinRate, Config::PickupAuraIntensity);
     }
 
     EndBlendMode();

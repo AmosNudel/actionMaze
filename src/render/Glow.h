@@ -41,6 +41,11 @@ Texture2D &GlowTexture(AssetManager &assets);
 // is expected to already be inside BeginBlendMode(BLEND_ADDITIVE) with the depth
 // mask off, the same as the fallback loop this was pulled out of - wrapping one
 // state change around a batch of these is cheaper than toggling it per call.
-//----------------------------------------------------------------------------------
+//
+// `intensity` scales the halo and floor pool's opacity and the core's pulse -
+// 1 is the plain glow every caller used to get. A pickup or a loot drop wants
+// to read as something to walk INTO rather than as dungeon dressing, so both
+// pass a number above 1 - see Config::PickupAuraIntensity / LootAuraIntensity.
 void DrawAura(const Camera3D &camera, Texture2D &glow, Vector3 at, float floorY,
-              Color colour, float coreSize, float haloSize, float pulsePhase);
+              Color colour, float coreSize, float haloSize, float pulsePhase,
+              float intensity = 1.0f);

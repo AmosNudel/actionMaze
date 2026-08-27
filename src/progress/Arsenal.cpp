@@ -332,8 +332,14 @@ int Arsenal::OwnedCount() const
 // Walks at most one full lap, so a player who owns nothing gets -1 back rather than
 // a loop that never terminates. The empty hand is a slot in the cycle and not an
 // absence: `Count()` slots plus one, with the last one meaning nothing held.
+//
+// `excludeTags` skips anything owned that carries one of those bits - see
+// Game::UpdateWorld's own use of TagBlocking, which keeps the main hand's wheel
+// from ever landing on a shield: Player's block and parry timing is hard-wired
+// to the off hand, so a shield in the main hand would raise and never do
+// anything. Zero excludes nothing, which is every other caller.
 //----------------------------------------------------------------------------------
-int Arsenal::NextOwned(int from, int step) const
+int Arsenal::NextOwned(int from, int step, unsigned excludeTags) const
 {
     const int count = Count();
 
@@ -353,7 +359,7 @@ int Arsenal::NextOwned(int from, int step) const
         if (slot < 0) slot = slots - 1;
 
         if (slot == count) return -1;           // The empty hand
-        if (Owns(slot)) return slot;
+        if (Owns(slot) && ((tags[(size_t)slot] & excludeTags) == 0)) return slot;
     }
 
     return -1;

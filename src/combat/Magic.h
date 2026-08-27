@@ -51,6 +51,20 @@ struct MagicDef
     float speed;            // World units a second in flight
 
     //------------------------------------------------------------------------------
+    // Every OTHER living enemy within this of the impact point takes the same
+    // blow - and the same effect (see Enemy::ApplyMagicEffect) - the mote's real
+    // target did. Applied in ProjectileManager::Advance, the same place NOVA's
+    // own burst always was; every school gets one now instead of just that one.
+    //
+    // Still set against each other rather than to one shared number: NOVA stays
+    // the widest because "the one real area of effect" is still its whole
+    // identity, and FLASH/SPARK stay tight because a school that is fast and
+    // small in every other column reading as fast and small here too is the
+    // point, not an oversight.
+    //------------------------------------------------------------------------------
+    float aoeRadius;
+
+    //------------------------------------------------------------------------------
     // Multiple of the caster's SPELL POWER, not a damage figure.
     //
     // Spell power is arcane and only arcane (see Player::SpellPower), and that is

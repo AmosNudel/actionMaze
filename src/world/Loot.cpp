@@ -248,7 +248,8 @@ void LootManager::Draw(const Camera3D &camera) const
         const float core = fallback ? CoreSize : Config::LootAuraCore;
         const float halo = fallback ? HaloSize : Config::LootAuraHalo;
 
-        DrawAura(camera, *glow, at, drop.rest.y, colour, core, halo, drop.age*SpinRate);
+        DrawAura(camera, *glow, at, drop.rest.y, colour, core, halo, drop.age*SpinRate,
+                Config::LootAuraIntensity);
     }
 
     EndBlendMode();

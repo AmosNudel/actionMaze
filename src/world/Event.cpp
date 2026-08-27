@@ -275,6 +275,36 @@ EventManager::Blip EventManager::BlipAt(int index) const
     return blip;
 }
 
+int EventManager::RuneCount() const
+{
+    if (running < 0) return 0;
+
+    const Event &event = events[running];
+
+    if (event.kind != EventKind::Seal) return 0;
+
+    return (int)event.runes.size();
+}
+
+EventManager::RuneBlip EventManager::RuneAt(int index) const
+{
+    RuneBlip blip;
+
+    if (running < 0) return blip;
+
+    const Event &event = events[running];
+
+    if ((event.kind != EventKind::Seal) || (index < 0) || (index >= (int)event.runes.size()))
+    {
+        return blip;
+    }
+
+    blip.at = event.runes[(size_t)index].at;
+    blip.taken = event.runes[(size_t)index].taken;
+
+    return blip;
+}
+
 bool EventManager::RunningState(Color &colour, float &progress, float &timeLeft) const
 {
     if (running < 0) return false;

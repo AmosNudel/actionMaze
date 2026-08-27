@@ -2,6 +2,7 @@
 #include "core/Game.h"
 
 #include "combat/Attack.h"
+#include "combat/Equip.h"
 #include "combat/Stats.h"
 #include "core/Config.h"
 #include "raylib.h"
@@ -77,6 +78,7 @@ void Game::Init()
     vendors.Load(assets);
     loot.Load(assets);
     pickups.Load(assets);
+    treasure.Load(assets);
 
     // Everything above is a once-ever asset load with no level or character to be
     // ready yet. Everything a RUN needs - the level itself, the starting kit, the
@@ -117,6 +119,7 @@ void Game::StartNewRun()
     vfx.Clear();
     loot.Clear();
     pickups.Clear();
+    treasure.Clear();
 
     ResetChaos(chaos, level.Depth());
     portal.Reset();
@@ -185,7 +188,13 @@ void Game::ResetProgression()
     arsenal.GiveByName(Config::StartingShield);
     arsenal.GiveByName(Config::StartingStaff);
 
-    spells.Reset((Magic)Config::StartingMagic);
+    // Rolled fresh each run rather than always Flame - the schools are already
+    // balanced against each other (see MagicDef::damageMult's note), so there is
+    // no "safe" school a new character needs to be steered toward, and always
+    // opening on the same one made every run's first floor look the same.
+    const Magic startingMagic = (Magic)GetRandomValue(0, (int)Magic::Count - 1);
+
+    spells.Reset(startingMagic);
     traits.Clear();
 
     player.purse.Clear();
@@ -204,10 +213,10 @@ void Game::ResetProgression()
     // silently became the shield in both hands the moment GiveByName above
     // started granting it too.
     //------------------------------------------------------------------------------
-    viewModel.SetSlot(Hand::Right, arsenal.IndexOfName(Config::StartingWeapon));
-    viewModel.SetSlot(Hand::Left, arsenal.IndexOfName(Config::StartingShield));
+    EquipWeapon(viewModel, arsenal, Hand::Right, arsenal.IndexOfName(Config::StartingWeapon));
+    EquipWeapon(viewModel, arsenal, Hand::Left, arsenal.IndexOfName(Config::StartingShield));
 
-    magic = (Magic)Config::StartingMagic;
+    magic = startingMagic;
 }
 
 //----------------------------------------------------------------------------------
@@ -302,6 +311,20 @@ void Game::SeedRoomLoot()
                                                   Config::VaultCoinAmountMax);
 
                 loot.Spawn(Currency::Coins, amount, pileAt);
+            }
+
+            //----------------------------------------------------------------------
+            // A weapon, rarer than the coins - see the class note on
+            // TreasureManager for why this is a coin flip on top of the Vault
+            // already being the rarest room kind on the table, rather than
+            // something every Vault carries.
+            //----------------------------------------------------------------------
+            if ((GetRandomValue(0, 999)/1000.0f) < Config::TreasureChestChance)
+            {
+                treasure.Spawn(level.FindOpenSpotIn(room, 0.5f));
+
+                TraceLog(LOG_INFO, "TREASURE: a chest waits in the Vault at (%i, %i)",
+                         room.CenterX(), room.CenterZ());
             }
         }
     }
@@ -499,6 +522,7 @@ void Game::Descend()
     portal.PlaceAt(level.PortalPoint());
     loot.Clear();           // Last floor's uncollected gems belong to last floor
     pickups.Clear();        // Likewise its uncollected pickups
+    treasure.Clear();       // And an unopened chest, if this floor even had one
 
     // New rooms, new objectives, new vendors. Both Places clear whatever the old
     // floor had, so nothing survives into a map where its room no longer exists.
@@ -586,6 +610,7 @@ bool Game::UpdateScreens()
         const NpcKind here = vendors.At(player.Position());
 
         if (here != NpcKind::Count) shop.Open(here);
+        else if (treasure.At(player.Position())) treasure.Open(player.Position(), arsenal);
     }
 
     if (pause.IsOpen())
@@ -608,7 +633,7 @@ bool Game::UpdateScreens()
         }
     }
 
-    if (sheet.IsOpen()) sheet.Update(player, arsenal, spells, traits);
+    if (sheet.IsOpen()) sheet.Update(player, arsenal, spells, traits, viewModel);
     if (shop.IsOpen()) shop.Update(player, arsenal, spells, traits);
 
     // Both pages can change what the traits are granting - the sheet by equipping
@@ -774,43 +799,36 @@ void Game::UpdateWorld(float delta)
     // player has paid for is a fact about the run and the view model is a renderer.
     // It is handed the answer instead of the input - see ViewModel::SetSlot.
     //
-    // An empty hand is a slot in the cycle rather than an absence: a shield wants a
-    // free hand and so does a spell, so stepping off the last owned weapon lands on
-    // nothing held before coming round again.
+    // An empty OFF hand is a slot in the cycle rather than an absence: a shield
+    // wants a free hand and so does a spell, so stepping off the last owned
+    // weapon lands on nothing held before coming round again. The main hand has
+    // no such slot - see below.
     //------------------------------------------------------------------------------
     if (input.wheel != 0.0f)
     {
         const Hand hand = input.offhand ? Hand::Left : Hand::Right;
-        const Hand other = input.offhand ? Hand::Right : Hand::Left;
+        const int step = (input.wheel > 0.0f) ? 1 : -1;
 
-        const int newIndex = arsenal.NextOwned(viewModel.SlotIndex(hand),
-                                               (input.wheel > 0.0f) ? 1 : -1);
+        // The main hand's cycle skips shields outright - see the note on
+        // Arsenal::NextOwned's excludeTags and combat/Equip.h's EquipWeapon,
+        // which enforces the same rule for the Inventory tab's buttons.
+        // Skipping it here rather than just refusing it in EquipWeapon is what
+        // keeps the wheel moving instead of sticking on a shield it will not
+        // equip.
+        const unsigned excludeTags = (hand == Hand::Right) ? TagBlocking : 0;
 
-        viewModel.SetSlot(hand, newIndex);
+        int newIndex = arsenal.NextOwned(viewModel.SlotIndex(hand), step, excludeTags);
 
-        //--------------------------------------------------------------------
-        // A two-handed weapon takes both hands, so there is never a frame
-        // where one is in view alongside a second item - see TagTwoHanded and
-        // the note on Weapon.cpp's IsTwoHanded for which weapons these are.
-        //
-        // Two directions, both handled the same way: landing a two-hander in
-        // `hand` empties whatever `other` was holding, and landing anything
-        // real in `other` - cycling past empty does not count, but a weapon
-        // does - bumps a two-hander that was sitting in `hand` back out. The
-        // player is always the one who just acted; the hand that goes empty
-        // is always the one that did not.
-        //--------------------------------------------------------------------
-        const bool newIsTwoHanded = (newIndex >= 0)
-                                  && ((arsenal.TagsAt(newIndex) & TagTwoHanded) != 0);
-
-        const int otherIndex = viewModel.SlotIndex(other);
-        const bool otherIsTwoHanded = (otherIndex >= 0)
-                                    && ((arsenal.TagsAt(otherIndex) & TagTwoHanded) != 0);
-
-        if (newIsTwoHanded || (otherIsTwoHanded && (newIndex >= 0)))
+        // ...and never lands on empty either - see the note on EquipWeapon.
+        // Landing on -1 means the walk stopped exactly at that slot in the
+        // ring, so continuing from there carries on to whatever owned weapon
+        // comes next instead of just refusing and leaving the wheel stuck.
+        if ((hand == Hand::Right) && (newIndex < 0))
         {
-            viewModel.SetSlot(other, -1);
+            newIndex = arsenal.NextOwned(arsenal.Count(), step, excludeTags);
         }
+
+        EquipWeapon(viewModel, arsenal, hand, newIndex);
     }
 
     ViewModelInput weaponInput;
@@ -1038,6 +1056,7 @@ void Game::UpdateWorld(float delta)
     vendors.Update(delta);
     loot.Update(delta);
     pickups.Update(delta);
+    treasure.Update(delta);
 
     //------------------------------------------------------------------------------
     // Anything the player is standing on goes into the purse.
@@ -1154,6 +1173,7 @@ void Game::Draw()
             vendors.Draw(camera.Get());
             loot.Draw(camera.Get());
             pickups.Draw(camera.Get());
+            treasure.Draw(camera.Get());
 
             // Last of the world, and the only part of it that is additive: an
             // impact goes over the body it went off on rather than being sorted
@@ -1174,7 +1194,7 @@ void Game::Draw()
         vendors.DrawLabels(camera.Get());
 
         hud.Draw(player, viewModel, level, magic, chaos, events, spells, vendors,
-                 enemies, camera.Get(), inPortal);
+                 treasure, enemies, camera.Get(), inPortal);
 
         // The last of the dwell spent going dark, so the next floor arrives out of
         // black rather than as a cut. Over the HUD as well as the world - the whole
@@ -1192,7 +1212,7 @@ void Game::Draw()
         // opens, so it has to sit on top of the menu that opened it.
         pause.Draw(chaos.cleared);
         shop.Draw(player, arsenal, spells, traits, weaponPreview);
-        sheet.Draw(player, arsenal, spells, traits, weaponPreview);
+        sheet.Draw(player, arsenal, spells, traits, weaponPreview, viewModel);
 
         // Over all of them: once a run has ended none of the pages above it are
         // reachable any more (UpdateRunEnd shortcuts past UpdateScreens entirely),

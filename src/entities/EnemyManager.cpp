@@ -15,9 +15,23 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <cstring>
 
 namespace
 {
+    //------------------------------------------------------------------------------
+    // Whether a melee land-fraction has to read Config::EnemySliceMeleeLand
+    // instead of the shared Config::EnemyMeleeLand - see the note there. A
+    // slice's arm sweeps through its arc early and follows through for the
+    // rest of the clip doing nothing, where a chop's weapon is still closing
+    // on the target for most of it, so the two need different fractions and
+    // the clip's own name is what tells them apart.
+    //------------------------------------------------------------------------------
+    bool IsSliceClip(const char *name)
+    {
+        return (name != nullptr) && (strstr(name, "slice") != nullptr);
+    }
+
     //------------------------------------------------------------------------------
     // The grip for one prop, by path.
     //
@@ -794,9 +808,13 @@ void EnemyManager::UpdateRaider(Enemy &enemy, float delta, Level &level)
     {
         const LoadedType &loaded = TypeOf(enemy);
         const int clip = ClipFor(loaded, EnemyAnim::Attack, enemy.animVariant);
-        const float land = (clip >= 0)
-                         ? loaded.model.ClipDuration(clip)*Config::EnemyMeleeLand
-                         : 0.0f;
+
+        // A slice reads differently to a chop - see the note on IsSliceClip
+        // and on Config::EnemySliceMeleeLand.
+        const bool slice = IsSliceClip(SpecOf(enemy).attackClips[enemy.animVariant]);
+        const float fraction = slice ? Config::EnemySliceMeleeLand : Config::EnemyMeleeLand;
+
+        const float land = (clip >= 0) ? loaded.model.ClipDuration(clip)*fraction : 0.0f;
 
         if (enemy.animTime >= land)
         {
@@ -2035,9 +2053,13 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
         {
             const LoadedType &loaded = TypeOf(enemy);
             const int clip = ClipFor(loaded, EnemyAnim::Attack, enemy.animVariant);
-            const float land = (clip >= 0)
-                             ? loaded.model.ClipDuration(clip)*Config::EnemyMeleeLand
-                             : 0.0f;
+
+            // A slice reads differently to a chop - see the note on
+            // IsSliceClip and on Config::EnemySliceMeleeLand.
+            const bool slice = IsSliceClip(SpecOf(enemy).attackClips[enemy.animVariant]);
+            const float fraction = slice ? Config::EnemySliceMeleeLand : Config::EnemyMeleeLand;
+
+            const float land = (clip >= 0) ? loaded.model.ClipDuration(clip)*fraction : 0.0f;
 
             if (enemy.animTime >= land) LandMelee(enemy, player);
         }

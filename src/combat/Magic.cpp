@@ -30,13 +30,18 @@ namespace
     // watched and Flash is meant to be instant - and everything in between reads as
     // one or the other depending which end it is nearer.
     //
-    // The impact sizes are set against an enemy standing about two units tall: 1.6
-    // is a hit ON one, and 3.4 is a blast that covers it and whatever it was next
-    // to. NOVA alone has a real area of effect (Config::NovaRadius, applied where a
-    // mote of it lands - see ProjectileManager::Advance); everywhere else a wide
-    // impact is still a picture of force and not a promise about who was caught in
-    // it, which is worth being honest about before someone tunes BLAST expecting
-    // the second thing.
+    // The impact sizes used to be set against an enemy standing about two units
+    // tall - 1.6 a hit ON one, 3.4 a blast that covered it and whatever it was
+    // next to - but every school has a real AoE burst now (see the note on
+    // MagicDef::aoeRadius) and the picture has to be honest about how far that
+    // actually reaches, so both columns were raised together and by a lot: an
+    // impact that only ever covered the one body it hit read as no different
+    // from before, whatever the burst was quietly doing to its neighbours.
+    //
+    // Set against each other on the same logic as every other column: NOVA
+    // stays the widest because "the one real area of effect" is still its whole
+    // identity, FLASH and SPARK stay the tightest because fast and small
+    // everywhere else means fast and small here too.
     //
     // Elements and resistances were the plan here once - see the older note in
     // combat/Stats.h - and are not any more: an enemy never answered one
@@ -44,22 +49,23 @@ namespace
     // player could feel. What each school does INSTEAD is its own effect, in
     // `school` below and applied through Enemy::ApplyMagicEffect: SPARK always
     // crits, FLAME burns and can jump once to a neighbour, TOXIN stacks into a
-    // panic, BLAST shoves, SPLASH chills, FLASH blinds, REND bleeds. That is a
-    // difference a player watching the fight can actually see.
+    // panic, BLAST shoves, SPLASH chills, FLASH blinds, REND bleeds - and now all
+    // eight land that effect on everyone caught in the burst, not just the one
+    // body the mote actually hit.
     //------------------------------------------------------------------------------
     constexpr MagicDef Table[(int)Magic::Count] =
     {
-        // name      school           colour                        impact              tint    mote  impact speed mult
-        { "FLAME",  Magic::Flame,  { 255, 110,  40, 255 }, VfxKind::Flame,     WHITE,          0.13f, 2.6f, 26.0f, 1.10f },
-        { "SPARK",  Magic::Spark,  { 150, 170, 255, 255 }, VfxKind::Lightning, WHITE,          0.10f, 2.2f, 44.0f, 0.80f },
-        { "TOXIN",  Magic::Toxin,  { 130, 225,  95, 255 }, VfxKind::Poison,    WHITE,          0.17f, 3.0f, 17.0f, 0.90f },
-        { "BLAST",  Magic::Blast,  { 255, 145,  55, 255 }, VfxKind::Explosion, WHITE,          0.16f, 3.4f, 20.0f, 1.70f },
-        { "SPLASH", Magic::Splash, {  90, 205, 240, 255 }, VfxKind::Splash,    { 150, 220, 255, 255 }, 0.12f, 2.0f, 32.0f, 1.00f },
-        { "FLASH",  Magic::Flash,  { 255, 225, 140, 255 }, VfxKind::Muzzle,    WHITE,          0.10f, 1.6f, 50.0f, 1.20f },
-        { "NOVA",   Magic::Nova,   { 255, 195,  90, 255 }, VfxKind::MuzzleBig, WHITE,          0.15f, 3.2f, 22.0f, 1.40f },
+        // name      school           colour                        impact              tint    mote  impact speed mult  aoe
+        { "FLAME",  Magic::Flame,  { 255, 110,  40, 255 }, VfxKind::Flame,     WHITE,          0.13f, 4.5f, 26.0f, 1.10f, 4.5f },
+        { "SPARK",  Magic::Spark,  { 150, 170, 255, 255 }, VfxKind::Lightning, WHITE,          0.10f, 2.8f, 44.0f, 0.80f, 2.8f },
+        { "TOXIN",  Magic::Toxin,  { 130, 225,  95, 255 }, VfxKind::Poison,    WHITE,          0.17f, 4.0f, 17.0f, 0.90f, 4.0f },
+        { "BLAST",  Magic::Blast,  { 255, 145,  55, 255 }, VfxKind::Explosion, WHITE,          0.16f, 4.5f, 20.0f, 1.70f, 4.5f },
+        { "SPLASH", Magic::Splash, {  90, 205, 240, 255 }, VfxKind::Splash,    { 150, 220, 255, 255 }, 0.12f, 3.4f, 32.0f, 1.00f, 3.4f },
+        { "FLASH",  Magic::Flash,  { 255, 225, 140, 255 }, VfxKind::Muzzle,    WHITE,          0.10f, 2.8f, 50.0f, 1.20f, 2.8f },
+        { "NOVA",   Magic::Nova,   { 255, 195,  90, 255 }, VfxKind::MuzzleBig, WHITE,          0.15f, 5.0f, 22.0f, 1.40f, 5.0f },
         // The one drawn as matter. Its sheet is blood, which is already red, so the
         // tint stays white and the mote carries the colour on its own.
-        { "REND",   Magic::Rend,   { 210,  55,  60, 255 }, VfxKind::Blood,     WHITE,          0.14f, 2.0f, 28.0f, 1.50f },
+        { "REND",   Magic::Rend,   { 210,  55,  60, 255 }, VfxKind::Blood,     WHITE,          0.14f, 3.2f, 28.0f, 1.50f, 3.2f },
     };
 }
 

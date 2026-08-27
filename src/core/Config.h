@@ -95,8 +95,8 @@ namespace Config
     // thing a shake should not do.
     //--------------------------------------------------------------------------
     constexpr float CameraShakeDecay      = 2.2f;    // Trauma lost per second
-    constexpr float CameraShakeMaxOffset  = 0.05f;   // World units, at trauma 1
-    constexpr float CameraShakeOnHit      = 0.45f;   // Trauma added when the player is struck
+    constexpr float CameraShakeMaxOffset  = 0.08f;   // World units, at trauma 1
+    constexpr float CameraShakeOnHit      = 0.80f;   // Trauma added when the player is struck
     constexpr float CameraShakeOnCrit     = 0.30f;   // Trauma added when the player's own blow crits
 
     // Held weapon -------------------------------------------------------------
@@ -662,8 +662,10 @@ namespace Config
     constexpr int   SpellKillsPerMana   = 2;
 
     // What a school costs to cast, before its own damage multiplier and before any
-    // trait. Six at the table's midpoint, against a pool of twenty.
-    constexpr int   SpellBaseCost       = 5;
+    // trait, against a pool of twenty. Brought down from 5: at the table's
+    // midpoint that was a cast every four kills' worth of mana, which read as
+    // casting being too expensive to lean on rather than a real cost.
+    constexpr int   SpellBaseCost       = 3;
 
     // What the mystic asks for a school, before its damage multiplier. Gems are
     // rare - a school is a few elite kills, not a floor of them.
@@ -718,11 +720,10 @@ namespace Config
     // anything - the one school that is entirely an interrupt.
     constexpr float FlashBlindDuration = 2.0f;
 
-    // NOVA: the one school with an actual area of effect - every other living
-    // enemy within this of the impact point takes the same blow the mote's real
-    // target did. Set against the same two-unit body NOVA's own impact art is
-    // sized for, wide enough to catch whatever was standing next to the target.
-    constexpr float NovaRadius = 3.5f;
+    // NOVA no longer has a Config constant of its own for this - every school's
+    // burst radius lives on its row of the table in Magic.cpp now (see
+    // MagicDef::aoeRadius), the same place every other per-school figure
+    // (damage, speed, impact size) already lived.
 
     //--------------------------------------------------------------------------
     // Vendors
@@ -805,16 +806,39 @@ namespace Config
     // gets on top of it - see the note on PickupManager::Draw for why a food
     // prop borrowed for a buff needs the second signal and a potion bottle
     // does not.
-    constexpr float PickupAuraCore     = 0.16f;
-    constexpr float PickupAuraHalo     = 0.55f;
-    constexpr float PickupAuraBuffCore = 0.22f;
-    constexpr float PickupAuraBuffHalo = 0.80f;
+    constexpr float PickupAuraCore     = 0.22f;
+    constexpr float PickupAuraHalo     = 0.80f;
+    constexpr float PickupAuraBuffCore = 0.30f;
+    constexpr float PickupAuraBuffHalo = 1.10f;
 
     // The same idiom on a currency drop worth more than an ordinary coin - see
     // the note on LootManager::Draw. Smaller than a Buff's own aura: a gem is a
     // nice find, not the loudest thing in the room.
-    constexpr float LootAuraCore = 0.14f;
-    constexpr float LootAuraHalo = 0.45f;
+    constexpr float LootAuraCore = 0.20f;
+    constexpr float LootAuraHalo = 0.65f;
+
+    // How much brighter a pickup or a loot drop burns than an ordinary glow -
+    // see the `intensity` parameter on DrawAura. Both exist to be walked into,
+    // not to blend into the dungeon's own furniture, so both burn hotter than
+    // the plain glow other things on the floor use.
+    constexpr float PickupAuraIntensity = 1.4f;
+    constexpr float LootAuraIntensity   = 1.3f;
+
+    //--------------------------------------------------------------------------
+    // Treasure chests - see world/Treasure.h.
+    //
+    // A chest in the Vault room that hands over one weapon the player does not
+    // already own, for free. Rarer than a merchant on purpose: a merchant is
+    // guaranteed on every floor and is the ordinary way an arsenal grows, and
+    // this is meant to be a bonus that is often not there at all - Vault is
+    // already the rarest room kind on RoomKind.h's own weight table, and even
+    // when one is rolled this is a coin flip on top of it.
+    //--------------------------------------------------------------------------
+    constexpr float TreasureChestChance = 0.5f;    // Of an eligible Vault holding one
+    constexpr float TreasureTakeRadius  = 1.3f;
+    constexpr float TreasureChestScale  = 1.15f;
+    constexpr float TreasureAuraCore    = 0.20f;
+    constexpr float TreasureAuraHalo    = 0.70f;
 
     //--------------------------------------------------------------------------
     // Limited stock.
@@ -841,15 +865,15 @@ namespace Config
     //--------------------------------------------------------------------------
     // The starting kit
     //--------------------------------------------------------------------------
-    // One weapon and one school; everything else is bought. Matched as a
-    // case-insensitive SUBSTRING of the model's file name, so the constant does
-    // not have to know whether the asset is called "sword" or "sword_1h".
+    // One weapon; everything else is bought. Matched as a case-insensitive
+    // SUBSTRING of the model's file name, so the constant does not have to know
+    // whether the asset is called "sword" or "sword_1h".
     //
-    // A sword and FLAME on purpose: the two most ordinary rows in their tables.
-    // The starting kit should be the thing every other purchase is measured
-    // against, which means it must not be interesting.
+    // A sword on purpose: the most ordinary row in its table. The starting
+    // weapon should be the thing every other purchase is measured against,
+    // which means it must not be interesting. The starting SCHOOL has no such
+    // constant - see Game::ResetProgression, which rolls one at random instead.
     constexpr char  StartingWeapon[]    = "sword";
-    constexpr int   StartingMagic       = 0;        // Magic::Flame
 
     //--------------------------------------------------------------------------
     // Owned from the first floor, but not held in a hand at spawn - a run does
@@ -1042,9 +1066,13 @@ namespace Config
 
     // How many ranks above the floor an event's bodies are rolled. It is the one
     // dial that makes an event's pack harder than the trash in the corridor
-    // outside, and it is small on purpose - two ranks is about +60% health and
-    // +34% damage, which is a step up rather than a wall.
-    constexpr int   EventRankBonus      = 2;
+    // outside, and it is small on purpose - a step up rather than a wall.
+    //
+    // Brought down from 2, then from 1: an event's bodies are the same rank as
+    // the floor's now. What still makes a Hunt or a Defend harder than the
+    // corridor outside is arriving in a pack on a clock, which is plenty - see
+    // also HuntWaveSize and DefendWaveSize, both trimmed for the same reason.
+    constexpr int   EventRankBonus      = 0;
 
     // How long the "what to do" line stays up after an event starts. Long enough
     // to read once; after that the bar and its banner are the readout, and a
@@ -1067,7 +1095,11 @@ namespace Config
     // The next wave also comes EARLY if the current one is already down, so a
     // player who is winning is not left standing in an empty room waiting.
     constexpr int   EventWaves          = 3;
-    constexpr int   HuntWaveSize        = 5;
+    // Trimmed from 5: three waves of five, even at the floor's own rank, adds up
+    // to fifteen bodies over one fight - more than the room around it usually
+    // holds at once. Four keeps the wave shape without it being the biggest
+    // fight on the floor by a wide margin.
+    constexpr int   HuntWaveSize        = 4;
     constexpr float HuntWaveGap         = 14.0f;
     constexpr float HuntTimeLimit       = 130.0f;
     // How far from the room's centre a wave's bodies come up. They climb out of
@@ -1090,7 +1122,11 @@ namespace Config
     constexpr int   DefendRelicHealth   = 90;
     constexpr int   DefendHitDamage     = 4;
     constexpr float DefendWaveGap       = 12.0f;
-    constexpr int   DefendWaveSize      = 3;
+    // Brought back up from 2: at the floor's own rank (EventRankBonus is 0 now)
+    // and mostly raiding rather than fighting, a wave of 2 left the event with
+    // almost nothing in it. 4 is bigger than the original 3 to make up for the
+    // rank bonus that used to do some of this work.
+    constexpr int   DefendWaveSize      = 4;
 
     //--------------------------------------------------------------------------
     // Not every spawn raids. This fraction of each wave ignores the player and
@@ -1103,8 +1139,12 @@ namespace Config
     // swinging was strictly correct. A body that comes for the PLAYER instead is
     // what turns "defend the relic" into a fight rather than a chore with a
     // health bar.
+    //
+    // Brought down from 0.65: the event was reading as too easy with most of a
+    // wave beelining past the player for the relic and never actually fighting
+    // them. Under half now raid; the rest are ordinary hostiles.
     //--------------------------------------------------------------------------
-    constexpr float DefendRaiderFraction = 0.65f;
+    constexpr float DefendRaiderFraction = 0.45f;
 
     // How far out raiders come in from. Well outside the ring the player will be
     // standing in, so they are visibly arriving rather than appearing on top of
@@ -1139,8 +1179,14 @@ namespace Config
     // hunt's whole pack because it is one target: the player can bring everything
     // to bear on it, and a champion that folds to that is not a fight worth
     // gating a floor on.
-    constexpr int   BountyRankBonus     = 5;
-    constexpr float BountyHealthScale   = 2.2f;
+    //
+    // Brought down twice now - first from 5 and 2.2, then again from 3 and 1.8:
+    // a single body rolled several ranks up AND scaled again on health was
+    // routinely the hardest thing on the floor by a wide margin, for the one
+    // event kind that offers no room to disengage and regroup - a duel that
+    // goes wrong is a duel the player is still in.
+    constexpr int   BountyRankBonus     = 2;
+    constexpr float BountyHealthScale   = 1.5f;
     constexpr float BountyTimeLimit     = 100.0f;
 
     // Seal --------------------------------------------------------------------
@@ -1926,7 +1972,18 @@ namespace Config
     // swing connects past the middle of its arc. Both are fractions of the clip
     // rather than seconds, so a slow chop and a quick jab each land at the right
     // moment in their own animation.
+    //
+    // "each" turned out to overstate it: a CHOP's weapon is still closing on the
+    // target for most of the clip, so 0.55 reads right on one, but a SLICE's arm
+    // sweeps through its arc early and then follows through for the rest of the
+    // clip doing nothing - at the same 0.55 the hit lands on the follow-through,
+    // well after the blade actually crossed the body. One flat fraction cannot
+    // fit both shapes, so EnemyManager checks the clip's own name for "slice"
+    // and reads EnemySliceMeleeLand instead when it finds it, rather than this
+    // needing a per-archetype table of its own for what is really one shape of
+    // swing against another.
     constexpr float EnemyMeleeLand      = 0.55f;
+    constexpr float EnemySliceMeleeLand = 0.40f;
 
     //--------------------------------------------------------------------------
     // What the blow still has to be true of when it lands.

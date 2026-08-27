@@ -8,6 +8,8 @@ class Player;
 class Arsenal;
 class Spellbook;
 class WeaponPreview;
+class ViewModel;
+struct UiInput;
 
 //----------------------------------------------------------------------------------
 // Where points are spent, and where traits are worn.
@@ -37,12 +39,15 @@ class WeaponPreview;
 // ones already owned is free, because a trait is a build decision and charging to
 // undo one turns experimenting into a punishment.
 //
-// INVENTORY and MAGIC are read-only reference pages beside it: every weapon owned
-// and what it does (damage, reach, forge level, its tags), and every school owned
-// and what its signature effect actually is - the answer to "what does casting this
-// do" that used to live only in code comments. Equipping still happens on the mouse
-// wheel and casting still happens on the number keys; these two tabs are where you
-// go to check what you are carrying before you decide to change it.
+// MAGIC is a read-only reference page beside it: every school owned and what its
+// signature effect actually is - the answer to "what does casting this do" that
+// used to live only in code comments. Casting still happens on the number keys.
+//
+// INVENTORY is almost the same kind of page - every weapon owned, its damage,
+// reach, forge level and tags - except it is also where a weapon is put into a
+// hand. Two small buttons on each row, L and R, do what the mouse wheel already
+// did during play; this is where you go to check what you are carrying AND to
+// decide which hand it goes in, which the wheel has no way to ask for directly.
 //
 // The purse is on this page too, and only on this page, on every tab rather than
 // one of them - it is not "the tab about currency", it is a fact about the run that
@@ -60,19 +65,23 @@ public:
     bool IsOpen() const { return open; }
     void Close() { open = false; }
 
-    // Reads the mouse, spends points, moves traits, and switches tabs. Only call
-    // while open. Arsenal and Spellbook are read-only here - Inventory and Magic
-    // are reference tabs, nothing on them is bought or equipped.
+    // Reads the mouse, spends points, moves traits, switches tabs, and equips
+    // whichever hand the Inventory tab's L/R buttons were clicked for. Only call
+    // while open. Arsenal and Spellbook are still read-only here - nothing on
+    // this page buys or sells anything - but `viewModel` is not: it is which
+    // weapon is in which hand, and that is exactly what this page now changes.
     void Update(Player &player, const Arsenal &arsenal, const Spellbook &spells,
-               TraitLoadout &traits);
+               TraitLoadout &traits, ViewModel &viewModel);
 
     // Screen space, after EndMode3D. `preview` draws the Inventory tab's rotating
     // weapon icons - see render/WeaponPreview.h - and is mutable despite this
     // being a const method for the same reason ShopScreen::Draw's is: it owns a
     // render target it redraws every row, and nothing about the sheet's own
-    // state changes because of it.
+    // state changes because of it. `viewModel` is read only, for which hand's
+    // button to draw highlighted.
     void Draw(const Player &player, const Arsenal &arsenal, const Spellbook &spells,
-             const TraitLoadout &traits, WeaponPreview &preview) const;
+             const TraitLoadout &traits, WeaponPreview &preview,
+             const ViewModel &viewModel) const;
 
 private:
     enum class Tab { Stats, Inventory, Magic };
@@ -138,10 +147,14 @@ private:
     // Rebuilt per frame from the loadout for the same reason the shop's rows are.
     void BuildPickable(const TraitLoadout &traits, int owned[MaxTraits], int &count) const;
 
-    // The Inventory and Magic tabs. Read-only reference lists, so unlike the Stats
-    // tab's rows these take no UiInput and act on nothing - Draw is their whole
-    // job.
-    void DrawInventoryTab(const Layout &page, const Arsenal &arsenal, WeaponPreview &preview) const;
+    // The Inventory and Magic tabs. Magic is a read-only reference list, so
+    // unlike the Stats tab's rows it takes no UiInput and acts on nothing - Draw
+    // is its whole job. Inventory takes `in` too, only to draw its two hand
+    // buttons pressed or highlighted - see InventoryHandButton in the .cpp; the
+    // click itself is still handled in Update, same as everything else on this
+    // page.
+    void DrawInventoryTab(const Layout &page, const Arsenal &arsenal, WeaponPreview &preview,
+                          const ViewModel &viewModel, const UiInput &in) const;
     void DrawMagicTab(const Layout &page, const Player &player, const Spellbook &spells) const;
 
     bool open = false;

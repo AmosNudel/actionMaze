@@ -190,10 +190,11 @@ bool Minimap::SeenAt(const Level &level, Vector3 at) const
 // answer of fading a finished one out: a dimmed dot on a grey floor is a dot the
 // player cannot tell from one they have not been to yet, which is exactly backwards.
 //----------------------------------------------------------------------------------
-void Minimap::DrawMarker(const Level &level, Vector3 at, Color colour, bool hollow) const
+void Minimap::DrawMarker(const Level &level, Vector3 at, Color colour, bool hollow,
+                         float scale) const
 {
     const Vector2 p = ToScreen(level, at);
-    const float r = MarkRadius*CellPixels();
+    const float r = MarkRadius*CellPixels()*scale;
 
     const float edge = UiScale();
 
@@ -337,6 +338,22 @@ void Minimap::Draw(const Level &level, const EventManager &events,
         if (!SeenAt(level, blip.at)) continue;
 
         DrawMarker(level, blip.at, blip.colour, blip.resolved);
+    }
+
+    //------------------------------------------------------------------------------
+    // A running Seal's own runes, as a hint of where they still are. Smaller than
+    // the event's own marker - several can sit in one room, and at full size they
+    // would read as one blob rather than as a scatter to go collect - and hollow
+    // once taken, the same "still worth going to" rule every other marker here
+    // follows.
+    //------------------------------------------------------------------------------
+    for (int i = 0; i < events.RuneCount(); ++i)
+    {
+        const EventManager::RuneBlip rune = events.RuneAt(i);
+
+        if (!SeenAt(level, rune.at)) continue;
+
+        DrawMarker(level, rune.at, EventAt(EventKind::Seal).colour, rune.taken, 0.55f);
     }
 
     //------------------------------------------------------------------------------

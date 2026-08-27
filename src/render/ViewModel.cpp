@@ -42,10 +42,13 @@ namespace
         { "sword_E",  Hand::Right, {  0.398f, -0.336f, 0.555f,  -35.9f,  -71.2f,  -17.6f, 0.450f } },
         { "wand_A",   Hand::Right, {  0.280f, -0.260f, 0.425f,  -78.0f,    6.0f,    8.0f, 0.450f } },
 
-        // Shields are off hand items: posed on the left, mirrored for the right
-        { "shield_A", Hand::Left,  { -0.221f, -0.180f, 0.391f,   15.8f, -191.7f,   -4.0f, 0.450f } },
-        { "shield_B", Hand::Left,  { -0.402f, -0.260f, 0.608f, -181.0f,   10.2f,  178.3f, 0.450f } },
-        { "shield_C", Hand::Left,  { -0.400f, -0.260f, 0.550f, -177.0f,    6.0f,    1.0f, 0.450f } },
+        // Shields are off hand items: posed on the left, mirrored for the right.
+        // Pushed further left and down than the drag originally landed them -
+        // a lowered shield sitting this close to the camera's centre read as
+        // still half-raised.
+        { "shield_A", Hand::Left,  { -0.301f, -0.240f, 0.391f,   15.8f, -191.7f,   -4.0f, 0.450f } },
+        { "shield_B", Hand::Left,  { -0.482f, -0.320f, 0.608f, -181.0f,   10.2f,  178.3f, 0.450f } },
+        { "shield_C", Hand::Left,  { -0.480f, -0.320f, 0.550f, -177.0f,    6.0f,    1.0f, 0.450f } },
 
         // Weapons whose mirrored left hand grip needed straightening out
         { "axe_C",    Hand::Left,  { -0.280f, -0.176f, 0.458f,    0.8f,  255.6f,   11.0f, 0.450f } },

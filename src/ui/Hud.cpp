@@ -105,7 +105,8 @@ float Hud::BarPixels() const
 void Hud::Draw(const Player &player, const ViewModel &viewModel, const Level &level,
                Magic magic, const ChaosState &chaos, const EventManager &events,
                const Spellbook &spells, const VendorManager &vendors,
-               const EnemyManager &enemies, const Camera3D &camera, bool inPortal) const
+               const TreasureManager &treasure, const EnemyManager &enemies,
+               const Camera3D &camera, bool inPortal) const
 {
     (void)viewModel;    // Its tuning readout lives in the ViewModelEditor's own box
 
@@ -121,6 +122,7 @@ void Hud::Draw(const Player &player, const ViewModel &viewModel, const Level &le
     DrawEvent(events);
 
     DrawVendorPrompt(player, vendors);
+    DrawTreasurePrompt(player, treasure);
 
     // Over the world and under the pages. A champion's bar is about something the
     // player is looking at, so it belongs with the crosshair rather than in a corner.
@@ -516,6 +518,36 @@ void Hud::DrawVendorPrompt(const Player &player, const VendorManager &vendors) c
     UiTextCenteredOutline(TextFormat("E    trade with the %s", def.name),
                           GetScreenWidth()*0.5f, GetScreenHeight()*0.5f + 48.0f*ui,
                           BriefSize*ui, def.colour);
+}
+
+//----------------------------------------------------------------------------------
+// "E to open", standing at an unopened chest, and "FOUND: <name>" fading out for
+// a few seconds after it is opened. Never both at once - the prompt only shows
+// for a chest that is still there, and Open() removes the chest the same frame
+// it starts the fade.
+//----------------------------------------------------------------------------------
+void Hud::DrawTreasurePrompt(const Player &player, const TreasureManager &treasure) const
+{
+    const float ui = UiScale();
+
+    if (treasure.At(player.Position()))
+    {
+        UiTextCenteredOutline("E    open the chest",
+                              GetScreenWidth()*0.5f, GetScreenHeight()*0.5f + 48.0f*ui,
+                              BriefSize*ui, GOLD);
+
+        return;
+    }
+
+    constexpr float MessageTime = 2.5f;
+
+    if (treasure.LastFoundAge() >= MessageTime) return;
+
+    const float fade = 1.0f - (treasure.LastFoundAge()/MessageTime);
+
+    UiTextCenteredOutline(TextFormat("FOUND: %s", treasure.LastFoundName()),
+                          GetScreenWidth()*0.5f, GetScreenHeight()*0.5f + 48.0f*ui,
+                          BriefSize*ui, Fade(GOLD, fade));
 }
 
 //----------------------------------------------------------------------------------

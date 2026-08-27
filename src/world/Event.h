@@ -165,6 +165,20 @@ public:
     int BlipCount() const { return (int)events.size(); }
     Blip BlipAt(int index) const;
 
+    //------------------------------------------------------------------------------
+    // The RUNNING Seal's own runes, as a hint of where they still are - see
+    // Minimap::Draw. Empty whenever nothing running is a Seal, so a caller does
+    // not have to ask which kind is running before asking this.
+    //------------------------------------------------------------------------------
+    struct RuneBlip
+    {
+        Vector3 at{};
+        bool taken = false;
+    };
+
+    int RuneCount() const;
+    RuneBlip RuneAt(int index) const;
+
     void Clear();
 
 private:

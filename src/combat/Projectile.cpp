@@ -231,16 +231,19 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
             if (shot.crit) enemyCrit = true;
 
             //----------------------------------------------------------------------
-            // What the school does, over and above the damage just applied.
+            // What the school does, over and above the damage just applied - to
+            // the body the mote actually hit, and then to the burst around it.
             //
-            // Two of the eight need more than one enemy can answer for on its own -
-            // BLAST's shove wants the bolt's own line of travel, and NOVA's area
-            // wants the rest of the list - so those two are handled here rather
-            // than inside Enemy::ApplyMagicEffect, which covers the other six.
+            // BLAST's shove wants the bolt's own line of travel for the direct
+            // hit and is handled here rather than inside Enemy::ApplyMagicEffect,
+            // which does not have it; every other school's own effect (burn,
+            // stacks, slow, blind, bleed, SPARK's crit already rolled) is applied
+            // through that function alone.
             //----------------------------------------------------------------------
             if (mote)
             {
                 const Magic school = shot.look.magic->school;
+                const MagicDef &def = *shot.look.magic;
 
                 enemy.ApplyMagicEffect(school);
 
@@ -258,27 +261,41 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
                     enemy.shotPending = false;
                     enemy.channelTime = 0.0f;
                 }
-                else if (school == Magic::Nova)
+
+                //------------------------------------------------------------------
+                // The burst: every OTHER living body within this school's own
+                // aoeRadius (see the note on MagicDef::aoeRadius) takes the same
+                // blow AND the same effect `enemy` above just did. This is what
+                // turns every school into a real area of effect rather than a
+                // single target with a wide picture drawn round it - NOVA's own
+                // trick, now every school's.
+                //------------------------------------------------------------------
+                for (Enemy &other : enemies)
                 {
-                    //------------------------------------------------------------
-                    // The one real area of effect - every OTHER living body within
-                    // NovaRadius of the impact takes the same blow the mote's
-                    // actual target did. `enemy` above already has its own hit;
-                    // this is what makes NOVA a room-clearer rather than a
-                    // single-target school with a wide picture drawn round it.
-                    //------------------------------------------------------------
-                    for (Enemy &other : enemies)
+                    if (&other == &enemy) continue;
+                    if (!other.IsAlive()) continue;
+
+                    const float dx = other.body.position.x - contact.x;
+                    const float dz = other.body.position.z - contact.z;
+
+                    if ((dx*dx + dz*dz) > def.aoeRadius*def.aoeRadius) continue;
+
+                    other.killedBySpell = true;
+                    other.TakeDamageFrom(shot.damage, contact);
+                    other.ApplyMagicEffect(school);
+
+                    if (school == Magic::Blast)
                     {
-                        if (&other == &enemy) continue;
-                        if (!other.IsAlive()) continue;
+                        // Radially outward from the impact rather than along the
+                        // bolt's own line - these bodies were never on that line,
+                        // and an explosion pushes everyone away from where it
+                        // went off rather than all in one direction.
+                        other.Shove(Vector3Subtract(other.body.position, contact),
+                                   Config::BlastKnockbackSpeed);
 
-                        const float dx = other.body.position.x - contact.x;
-                        const float dz = other.body.position.z - contact.z;
-
-                        if ((dx*dx + dz*dz) > Config::NovaRadius*Config::NovaRadius) continue;
-
-                        other.killedBySpell = true;
-                        other.TakeDamageFrom(shot.damage, contact);
+                        other.meleePending = false;
+                        other.shotPending = false;
+                        other.channelTime = 0.0f;
                     }
                 }
             }

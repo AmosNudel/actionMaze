@@ -28,6 +28,7 @@
 #include "world/Level.h"
 #include "world/Loot.h"
 #include "world/Pickup.h"
+#include "world/Treasure.h"
 #include "world/Vendors.h"
 
 //----------------------------------------------------------------------------------
@@ -180,6 +181,12 @@ private:
     // is: seeded fresh by SeedPickups every time Descend rebuilds the map, and
     // thrown away with everything else the old floor was holding.
     PickupManager pickups;
+
+    // A rare chest, holding a weapon rather than a currency - see the class note
+    // on TreasureManager. Floor state for the same reason as the two above:
+    // seeded by SeedRoomLoot alongside the Vault's own coin piles, and gone with
+    // the rest of the floor at the next Descend.
+    TreasureManager treasure;
 
     //------------------------------------------------------------------------------
     // What the player has bought, across the whole run.

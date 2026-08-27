@@ -7,6 +7,7 @@
 #include "ui/UiBars.h"
 #include "world/Chaos.h"
 #include "world/Event.h"
+#include "world/Treasure.h"
 #include "world/Vendors.h"
 
 class AssetManager;
@@ -64,7 +65,8 @@ public:
     void Draw(const Player &player, const ViewModel &viewModel, const Level &level,
               Magic magic, const ChaosState &chaos, const EventManager &events,
               const Spellbook &spells, const VendorManager &vendors,
-              const EnemyManager &enemies, const Camera3D &camera, bool inPortal) const;
+              const TreasureManager &treasure, const EnemyManager &enemies,
+              const Camera3D &camera, bool inPortal) const;
 
 private:
     //------------------------------------------------------------------------------
@@ -125,6 +127,14 @@ private:
     // for a thing under your feet is a prompt nobody reads.
     //------------------------------------------------------------------------------
     void DrawVendorPrompt(const Player &player, const VendorManager &vendors) const;
+
+    //------------------------------------------------------------------------------
+    // "E to open", standing at an unopened chest, and "FOUND: <name>" fading out
+    // for a few seconds after it is opened - see TreasureManager::LastFoundName.
+    // The same near-the-crosshair placement as the vendor prompt above, for the
+    // same reason.
+    //------------------------------------------------------------------------------
+    void DrawTreasurePrompt(const Player &player, const TreasureManager &treasure) const;
 
     //------------------------------------------------------------------------------
     // A health bar over every CHAMPION in view, and over nothing else.

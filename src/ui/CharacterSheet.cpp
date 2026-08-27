@@ -1,11 +1,14 @@
 #include "ui/CharacterSheet.h"
 
+#include "combat/Equip.h"
 #include "combat/Magic.h"
 #include "combat/Weapon.h"
 #include "core/Config.h"
+#include "core/Hand.h"
 #include "entities/Player.h"
 #include "progress/Arsenal.h"
 #include "progress/Spellbook.h"
+#include "render/ViewModel.h"
 #include "render/WeaponPreview.h"
 #include "ui/UiText.h"
 #include "ui/UiTheme.h"
@@ -120,6 +123,29 @@ namespace
     // The three tab labels, in Tab order.
     constexpr const char *TabLabel[3] = { "STATS", "INVENTORY", "MAGIC" };
 
+    constexpr float HandButtonW   = 34.0f;
+    constexpr float HandButtonH   = 26.0f;
+    constexpr float HandButtonGap = 6.0f;
+
+    //------------------------------------------------------------------------------
+    // Where an Inventory row's L or R button sits, right-aligned inside the row.
+    // One function used by both Update's hit test and DrawInventoryTab's paint,
+    // so the two can never disagree about where a click landed - the one bug
+    // Layout's own class comment exists to rule out, extended here to a rect
+    // that is not stored in it.
+    //------------------------------------------------------------------------------
+    Rectangle InventoryHandButton(Rectangle box, float ls, Hand hand)
+    {
+        const Rectangle right = { box.x + box.width - RowPad*ls - HandButtonW*ls,
+                                  box.y + (box.height - HandButtonH*ls)*0.5f,
+                                  HandButtonW*ls, HandButtonH*ls };
+
+        if (hand == Hand::Right) return right;
+
+        return { right.x - HandButtonGap*ls - HandButtonW*ls, right.y,
+                HandButtonW*ls, HandButtonH*ls };
+    }
+
     //------------------------------------------------------------------------------
     // What each school's signature effect actually does - see combat/Magic.cpp's
     // table for the numbers and combat/Stats.h for why elements and resistances
@@ -131,14 +157,14 @@ namespace
     {
         switch (magic)
         {
-            case Magic::Flame:  return "burns - can jump once to a nearby enemy";
-            case Magic::Spark:  return "every hit is a critical strike";
-            case Magic::Toxin:  return "stacks - at max stacks the target flees";
-            case Magic::Blast:  return "knocks back and interrupts";
-            case Magic::Splash: return "chills - slows the target's own pace";
-            case Magic::Flash:  return "blinds - the target loses track of you";
-            case Magic::Nova:   return "the only real area of effect on the table";
-            default:             return "bleeds - short, sharp, no spread";  // Rend
+            case Magic::Flame:  return "burns everyone nearby, and can jump again from there";
+            case Magic::Spark:  return "every hit is a critical strike, burst included";
+            case Magic::Toxin:  return "stacks poison on everyone nearby - flees at max stacks";
+            case Magic::Blast:  return "knocks back and interrupts everyone nearby";
+            case Magic::Splash: return "chills and slows everyone nearby";
+            case Magic::Flash:  return "blinds everyone nearby - they lose track of you";
+            case Magic::Nova:   return "the widest burst on the table";
+            default:             return "bleeds everyone nearby - short, sharp, close";  // Rend
         }
     }
 }
@@ -331,7 +357,7 @@ void CharacterSheet::BuildPickable(const TraitLoadout &traits, int owned[MaxTrai
 }
 
 void CharacterSheet::Update(Player &player, const Arsenal &arsenal, const Spellbook &spells,
-                            TraitLoadout &traits)
+                            TraitLoadout &traits, ViewModel &viewModel)
 {
     if (!open) return;
 
@@ -408,8 +434,58 @@ void CharacterSheet::Update(Player &player, const Arsenal &arsenal, const Spellb
     // Works from any tab - closing the page is not a Stats-only decision.
     if (in.Over(page.close)) { open = false; return; }
 
-    // Inventory and Magic are read-only reference tabs: nothing below this point
-    // is theirs to click.
+    //------------------------------------------------------------------------------
+    // The Inventory tab's two hand buttons. L sends this weapon to the off hand,
+    // R to the main one; clicking the hand it is already in takes it off instead
+    // - the same toggle the trait slots use just below, and the only way a hand
+    // ends up empty from this page. EquipWeapon (combat/Equip.h) is what refuses
+    // a shield offered to the main hand and clears a weapon out of the other
+    // hand if it was sitting there too - the same two rules the wheel follows.
+    //------------------------------------------------------------------------------
+    if (tab == Tab::Inventory)
+    {
+        int ownedWeapons[MaxWeapons];
+        int ownedWeaponCount = 0;
+
+        for (int i = 0; (i < arsenal.Count()) && (ownedWeaponCount < MaxWeapons); ++i)
+        {
+            if (arsenal.Owns(i)) ownedWeapons[ownedWeaponCount++] = i;
+        }
+
+        for (int slot = 0; slot < page.contentVisible; ++slot)
+        {
+            const int index = scroll + slot;
+
+            if (index >= ownedWeaponCount) break;
+
+            const int id = ownedWeapons[index];
+            const Rectangle box = page.ContentRowAt(slot);
+
+            if (in.Over(InventoryHandButton(box, page.ls, Hand::Left)))
+            {
+                const int target = (viewModel.SlotIndex(Hand::Left) == id) ? -1 : id;
+
+                EquipWeapon(viewModel, arsenal, Hand::Left, target);
+
+                return;
+            }
+
+            if (((arsenal.TagsAt(id) & TagBlocking) == 0) &&
+                in.Over(InventoryHandButton(box, page.ls, Hand::Right)))
+            {
+                const int target = (viewModel.SlotIndex(Hand::Right) == id) ? -1 : id;
+
+                EquipWeapon(viewModel, arsenal, Hand::Right, target);
+
+                return;
+            }
+        }
+
+        return;
+    }
+
+    // Magic is a read-only reference tab: nothing below this point is its to
+    // click.
     if (tab != Tab::Stats) return;
 
     //------------------------------------------------------------------------------
@@ -510,7 +586,8 @@ void CharacterSheet::Update(Player &player, const Arsenal &arsenal, const Spellb
 }
 
 void CharacterSheet::Draw(const Player &player, const Arsenal &arsenal, const Spellbook &spells,
-                          const TraitLoadout &traits, WeaponPreview &preview) const
+                          const TraitLoadout &traits, WeaponPreview &preview,
+                          const ViewModel &viewModel) const
 {
     if (!open) return;
 
@@ -558,7 +635,7 @@ void CharacterSheet::Draw(const Player &player, const Arsenal &arsenal, const Sp
                         active ? UiAccent : UiDim);
     }
 
-    if (tab == Tab::Inventory) { DrawInventoryTab(page, arsenal, preview); }
+    if (tab == Tab::Inventory) { DrawInventoryTab(page, arsenal, preview, viewModel, in); }
     else if (tab == Tab::Magic) { DrawMagicTab(page, player, spells); }
     else
     {
@@ -780,11 +857,14 @@ void CharacterSheet::Draw(const Player &player, const Arsenal &arsenal, const Sp
 
 //----------------------------------------------------------------------------------
 // Every weapon owned: what it does, what forging has done to it, what kind of
-// weapon it is. Read-only - equipping is still the wheel's job, this is where you
-// check what you are carrying before you decide to change it.
+// weapon it is, and two buttons - L, R - for which hand it is in, lit up
+// whichever it is already in. The click itself is handled in Update; this only
+// draws the same two rectangles InventoryHandButton hands back there, pressed or
+// highlighted to match.
 //----------------------------------------------------------------------------------
 void CharacterSheet::DrawInventoryTab(const Layout &page, const Arsenal &arsenal,
-                                      WeaponPreview &preview) const
+                                      WeaponPreview &preview, const ViewModel &viewModel,
+                                      const UiInput &in) const
 {
     const float ls = page.ls;
 
@@ -837,10 +917,23 @@ void CharacterSheet::DrawInventoryTab(const Layout &page, const Arsenal &arsenal
 
         const bool maxed = !arsenal.CanForge(id);
 
+        const Rectangle leftBtn = InventoryHandButton(box, ls, Hand::Left);
+        const Rectangle rightBtn = InventoryHandButton(box, ls, Hand::Right);
+        const bool isShield = (arsenal.TagsAt(id) & TagBlocking) != 0;
+        const bool inLeft = (viewModel.SlotIndex(Hand::Left) == id);
+        const bool inRight = (viewModel.SlotIndex(Hand::Right) == id);
+
         UiLabelRight(TextFormat("forged %i / %i%s", arsenal.Forge(id), WeaponForgeMax,
                                 maxed ? "  (max)" : ""),
-                    box.x + box.width - RowPad*ls,
+                    leftBtn.x - RowPad*ls,
                     box.y + (box.height - SmallSize*ls)*0.5f, SmallSize*ls, UiDim);
+
+        // A shield's R button is drawn disabled rather than left out - a hole
+        // where a button always is elsewhere on the row reads as a mistake, and
+        // this is the one place that tells the player a shield has an off hand
+        // only, rather than them discovering it by a click that does nothing.
+        UiButton(leftBtn, true, ls, in, "L", inLeft ? UiReady : UiPanel, UiInk);
+        UiButton(rightBtn, !isShield, ls, in, "R", inRight ? UiReady : UiPanel, UiInk);
     }
 }
 

@@ -185,8 +185,14 @@ public:
     // -1 is a legitimate value and means the empty hand, which is a real loadout
     // choice: a shield needs a free hand and so does a spell. So the cycle runs over
     // `Count()` slots plus one, and the extra one is nothing at all.
+    //
+    // `excludeTags` - default 0, excluding nothing - skips any owned weapon
+    // carrying one of those bits, so a caller can keep the cycle off things
+    // that do not belong in the hand asking for it. See combat/Weapon.h's
+    // WeaponTag and the note on the definition for why the main hand's wheel
+    // passes TagBlocking here.
     //------------------------------------------------------------------------------
-    int NextOwned(int from, int step) const;
+    int NextOwned(int from, int step, unsigned excludeTags = 0) const;
 
 private:
     // Indexed by the view model's weapon index. Parallel arrays rather than a struct

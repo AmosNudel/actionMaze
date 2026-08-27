@@ -94,7 +94,11 @@ private:
     // One marker on the plan, at a WORLD point. `hollow` is the resolved state - a
     // ring rather than a disc, so a finished event stays on the map as somewhere
     // the player has been rather than vanishing and taking the memory with it.
-    void DrawMarker(const Level &level, Vector3 at, Color colour, bool hollow) const;
+    // `scale` shrinks it against the usual mark radius - see its use for a Seal's
+    // own runes, several of which can sit in one room and would blob into each
+    // other at full size.
+    void DrawMarker(const Level &level, Vector3 at, Color colour, bool hollow,
+                    float scale = 1.0f) const;
 
     // Where a world point lands on the drawn plan, in screen pixels
     Vector2 ToScreen(const Level &level, Vector3 at) const;
