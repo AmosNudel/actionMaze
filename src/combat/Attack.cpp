@@ -162,6 +162,8 @@ MeleeResult SweepMelee(const Capsule &from, const Capsule &to, Vector3 eye,
         //--------------------------------------------------------------------------
         const bool crit = RollWeaponCrit(attacker, stats.critBonus);
 
+        if (crit) result.crit = true;
+
         // The weapon's own damage raised by ARMS, then the crit on top of that.
         // Before the guard gets its say: what a shield takes off is a fraction of
         // whatever arrived, critical or not, and the other order would let a crit

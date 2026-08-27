@@ -81,6 +81,24 @@ namespace Config
     constexpr float BobUp             = 0.15f;
     constexpr float StepRotation      = 0.01f;
 
+    //--------------------------------------------------------------------------
+    // Camera shake.
+    //
+    // A "trauma" value rather than a fixed kick: shakes from two blows landing a
+    // frame apart ADD rather than one replacing the other, so a flurry actually
+    // reads as heavier than one hit, and it decays back to zero on its own so
+    // nothing here has to remember to turn it off.
+    //
+    // Squared against the offset and the angle - see FpsCamera::Update - so a
+    // little trauma is barely felt and a lot of it is genuinely rough. A linear
+    // response would make every hit shake the same amount, which is the one
+    // thing a shake should not do.
+    //--------------------------------------------------------------------------
+    constexpr float CameraShakeDecay      = 2.2f;    // Trauma lost per second
+    constexpr float CameraShakeMaxOffset  = 0.05f;   // World units, at trauma 1
+    constexpr float CameraShakeOnHit      = 0.45f;   // Trauma added when the player is struck
+    constexpr float CameraShakeOnCrit     = 0.30f;   // Trauma added when the player's own blow crits
+
     // Held weapon -------------------------------------------------------------
     // Sway added on top of the camera's own bob, in the weapon's camera space.
     // Small numbers: the weapon sits about half a unit from the eye.
@@ -794,6 +812,19 @@ namespace Config
     constexpr int   EventContractsMin   = 1;
     constexpr int   EventContractsMax   = 2;
 
+    //--------------------------------------------------------------------------
+    // The captain's early stock.
+    //
+    // Two events a floor at 1-2 contracts each means a floor's WORST case is two
+    // contracts, not three - so a first-floor counter that happened to roll
+    // nothing but its pricier rows would be a shop the player cannot use yet.
+    // Below this depth the reroll guarantees one offer priced at or under the
+    // cap, the same idiom Arsenal::RerollOffers already uses to guarantee a
+    // castable weapon on floor one - see Game::RerollVendorStock.
+    //--------------------------------------------------------------------------
+    constexpr int   CaptainCheapGuaranteeDepth = 3;
+    constexpr int   CaptainCheapGuaranteePrice = 2;
+
     // ...and an event pays gems as well, because a resolved objective should move
     // more than one vendor's counter.
     constexpr int   EventGemsMin        = 1;
@@ -1193,6 +1224,19 @@ namespace Config
     constexpr float ChampionBarRange    = 26.0f;
     constexpr float ChampionBarWidth    = 150.0f;   // Design px - see UiTheme.h
     constexpr float ChampionBarLift     = 0.55f;    // World units over its head
+
+    //--------------------------------------------------------------------------
+    // The hurt indicator: a red bar at the edge of the screen, on the side the
+    // last blow came in from.
+    //
+    // It fades on a clock rather than snapping off, so a hit landing while the
+    // last one is still fading READS as two hits rather than restarting the
+    // same one - see Hud::DrawHurtIndicator.
+    //--------------------------------------------------------------------------
+    constexpr float HurtIndicatorTime   = 0.9f;     // Seconds to fade fully out
+    constexpr float HurtIndicatorRadius = 0.40f;    // Fraction of the shorter screen side
+    constexpr float HurtIndicatorLength = 130.0f;   // Design px, along the ring
+    constexpr float HurtIndicatorWidth  = 22.0f;    // Design px, across the ring
 
     constexpr float EnemyBlockArc       = 140.0f;
     constexpr float EnemyBlockDamageScale = 0.35f;

@@ -64,6 +64,29 @@ public:
     void TakeDamage(int amount);
     void TakeDamageFrom(int amount, Vector3 source);
 
+    //------------------------------------------------------------------------------
+    // What the last landed blow looked like, for anyone drawing feedback about it.
+    //
+    // Player only remembers WHERE and WHEN, in world space and a raw age - it has
+    // no idea which way the camera is looking, so turning that into a screen
+    // position is the HUD's job (see Hud::DrawHurtIndicator) and not this class's.
+    // `hitDirectional` is false for a blow with no meaningful source, like a Seal
+    // bolt falling from directly overhead - TakeDamage(int) alone cannot say a
+    // direction, and should not invent one.
+    //------------------------------------------------------------------------------
+    Vector3 lastHitFrom = { 0.0f, 0.0f, 0.0f };
+    bool lastHitDirectional = false;
+    float lastHitAge = 1e9f;    // Seconds since a blow last actually landed
+
+    // Edge-triggered: true for exactly the frame a blow landed, then cleared by
+    // whoever reads it. The same idiom Enemy::raidHitPending already uses - a
+    // body sets a flag when something happens and forgets it, and the system that
+    // cares (here, the camera shake) clears it once it has acted. `lastHitAge`
+    // above cannot serve this job on its own: it is a fading readout for the HUD,
+    // and a shake gated on "age is small" would refire every frame the age
+    // happened to still be under some threshold rather than once per blow.
+    bool hitPending = false;
+
     // Health back, capped at the pool. What weapon lifesteal pays into, and the
     // one way health is ever gained - so a cap that has just grown from a point of
     // constitution is respected without the caller knowing it moved.
@@ -91,6 +114,15 @@ public:
     // cannot undo a spend under those conditions is being asked to commit to
     // numbers that have not settled.
     void RespecStats();
+
+    // Undoes exactly the points named in `pending` - not a full respec, just
+    // whatever a caller is tracking as not yet confirmed. See CharacterSheet's
+    // CANCEL, which is what this exists for: a level's points go into `stats`
+    // the moment they are clicked, for the same reason SpendPoint always has -
+    // a point that only took effect once "confirmed" would be indistinguishable
+    // from a bug - and CANCEL is what takes back exactly that click's worth
+    // rather than the whole build.
+    void RevertPoints(const StatBlock &pending);
 
     // The pool a point of constitution moves. Recomputed rather than stored,
     // because it is the one number that has to agree with `stats` at all times.

@@ -7,6 +7,7 @@
 class Player;
 class Arsenal;
 class Spellbook;
+class WeaponPreview;
 
 //----------------------------------------------------------------------------------
 // Where points are spent, and where traits are worn.
@@ -65,9 +66,13 @@ public:
     void Update(Player &player, const Arsenal &arsenal, const Spellbook &spells,
                TraitLoadout &traits);
 
-    // Screen space, after EndMode3D
+    // Screen space, after EndMode3D. `preview` draws the Inventory tab's rotating
+    // weapon icons - see render/WeaponPreview.h - and is mutable despite this
+    // being a const method for the same reason ShopScreen::Draw's is: it owns a
+    // render target it redraws every row, and nothing about the sheet's own
+    // state changes because of it.
     void Draw(const Player &player, const Arsenal &arsenal, const Spellbook &spells,
-             const TraitLoadout &traits) const;
+             const TraitLoadout &traits, WeaponPreview &preview) const;
 
 private:
     enum class Tab { Stats, Inventory, Magic };
@@ -113,7 +118,8 @@ private:
         float contentRowHeight = 0.0f;
         int contentVisible = 0;
 
-        Rectangle respec{};
+        Rectangle cancel{};
+        Rectangle confirm{};
         Rectangle close{};
 
         float derivedX = 0.0f;      // Where the right hand column starts
@@ -135,7 +141,7 @@ private:
     // The Inventory and Magic tabs. Read-only reference lists, so unlike the Stats
     // tab's rows these take no UiInput and act on nothing - Draw is their whole
     // job.
-    void DrawInventoryTab(const Layout &page, const Arsenal &arsenal) const;
+    void DrawInventoryTab(const Layout &page, const Arsenal &arsenal, WeaponPreview &preview) const;
     void DrawMagicTab(const Layout &page, const Player &player, const Spellbook &spells) const;
 
     bool open = false;
@@ -160,4 +166,23 @@ private:
     // True on the frame the page appeared, so the click that OPENED it cannot also
     // be counted as a click on whatever is under the cursor inside it.
     bool justOpened = false;
+
+    //------------------------------------------------------------------------------
+    // What has been spent THIS SESSION - since the page last opened, or since the
+    // last CONFIRM or CANCEL, whichever was more recent.
+    //
+    // A point still goes into Player::stats the moment its [+] is clicked - see
+    // the note on Player::RevertPoints for why it has to, the same reason
+    // SpendPoint always has. This is a second, parallel record of exactly that
+    // click's worth, kept only so CANCEL has something precise to give back:
+    // without it, cancelling could only mean a full RespecStats, which throws
+    // away a build the player was happy with along with the level they just
+    // second-guessed.
+    //
+    // Not persisted anywhere outside this page. Closing the sheet without an
+    // explicit CONFIRM or CANCEL leaves the points spent - the page is a place to
+    // decide, not a lock on the character between visits.
+    //------------------------------------------------------------------------------
+    StatBlock pending{};
+    int pendingCount = 0;    // Sum of `pending`, so the buttons know at a glance whether there is anything to do
 };

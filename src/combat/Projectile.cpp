@@ -56,7 +56,7 @@ void ProjectileManager::Load(AssetManager &assets)
 }
 
 void ProjectileManager::Spawn(Vector3 from, Vector3 direction, float speed, int damage,
-                              ProjectileSide side, ProjectileLook look)
+                              ProjectileSide side, ProjectileLook look, bool crit)
 {
     const float length = Vector3Length(direction);
     if (length < 1e-4f) return;
@@ -79,6 +79,7 @@ void ProjectileManager::Spawn(Vector3 from, Vector3 direction, float speed, int 
     shot.velocity = Vector3Scale(direction, speed/length);
     shot.life = Config::ProjectileLife;
     shot.damage = damage;
+    shot.crit = crit;
     shot.side = side;
     shot.look = look;
 
@@ -171,7 +172,8 @@ void ProjectileManager::Stick(Shot &shot, Vector3 at, const Level &level, int do
 // taken with your back to a wall passes through you and dies in the brickwork.
 //----------------------------------------------------------------------------------
 bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &player,
-                                std::vector<Enemy> &enemies, VfxManager &vfx) const
+                                std::vector<Enemy> &enemies, VfxManager &vfx,
+                                bool &enemyCrit) const
 {
     // A mote has nothing to leave behind, so every way this function can stop it
     // ends in the same place. Named once here rather than branched on at each of
@@ -223,6 +225,8 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
             enemy.killedBySpell = mote;
 
             enemy.TakeDamageFrom(shot.damage, contact);
+
+            if (shot.crit) enemyCrit = true;
 
             //----------------------------------------------------------------------
             // What the school does, over and above the damage just applied.
@@ -372,9 +376,11 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
     return true;
 }
 
-void ProjectileManager::Update(float delta, Level &level, Player &player,
+bool ProjectileManager::Update(float delta, Level &level, Player &player,
                                std::vector<Enemy> &enemies, VfxManager &vfx)
 {
+    bool enemyCrit = false;
+
     for (Shot &shot : shots)
     {
         shot.life -= delta;
@@ -417,7 +423,7 @@ void ProjectileManager::Update(float delta, Level &level, Player &player,
             // Stopping is not the same as being spent: a shot that stuck has just
             // been given a fresh lifetime to sit there for, and zeroing it here
             // would delete it on the frame it landed
-            if (!Advance(shot, step, level, player, enemies, vfx))
+            if (!Advance(shot, step, level, player, enemies, vfx, enemyCrit))
             {
                 if (!shot.stuck) shot.life = 0.0f;
 
@@ -431,6 +437,8 @@ void ProjectileManager::Update(float delta, Level &level, Player &player,
     shots.erase(std::remove_if(shots.begin(), shots.end(),
                                [](const Shot &shot) { return shot.life <= 0.0f; }),
                 shots.end());
+
+    return enemyCrit;
 }
 
 //----------------------------------------------------------------------------------

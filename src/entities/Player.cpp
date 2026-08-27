@@ -41,6 +41,8 @@ void Player::Update(float delta, const InputState &input, float lookYaw)
     yaw = lookYaw;
 
     body.Update(delta, yaw, input.move, input.jump, input.crouch);
+
+    lastHitAge += delta;
 }
 
 void Player::UpdateAttacks(float delta, const bool pressed[2], const bool held[2], const AttackStyle newStyles[2])
@@ -76,8 +78,17 @@ void Player::TakeDamage(int amount)
 {
     if (amount <= 0) return;
 
+    const int before = health;
+
     health -= amount;
     if (health < 0) health = 0;
+
+    if (health < before)
+    {
+        lastHitAge = 0.0f;
+        lastHitDirectional = false;
+        hitPending = true;
+    }
 }
 
 void Player::TakeDamageFrom(int amount, Vector3 source)
@@ -90,7 +101,17 @@ void Player::TakeDamageFrom(int amount, Vector3 source)
         if (amount < 1) amount = 1;
     }
 
+    const int before = health;
+
     TakeDamage(amount);
+
+    // Overrides what TakeDamage just set: this blow DOES have a direction, so the
+    // indicator gets the one thing a bare TakeDamage cannot give it.
+    if (health < before)
+    {
+        lastHitFrom = source;
+        lastHitDirectional = true;
+    }
 }
 
 void Player::Heal(int amount)
@@ -319,6 +340,22 @@ void Player::RespecStats()
         // not a refund owed - nothing here can spend a point downwards - and
         // paying one out would mint points from nothing.
         const int spent = StatValue(stats, stat) - Config::StatBase;
+        if (spent <= 0) continue;
+
+        StatAdd(stats, stat, -spent);
+        statPoints += spent;
+    }
+
+    RefreshHealth();
+}
+
+void Player::RevertPoints(const StatBlock &pending)
+{
+    for (int i = 0; i < (int)Stat::Count; ++i)
+    {
+        const Stat stat = (Stat)i;
+
+        const int spent = StatValue(pending, stat);
         if (spent <= 0) continue;
 
         StatAdd(stats, stat, -spent);

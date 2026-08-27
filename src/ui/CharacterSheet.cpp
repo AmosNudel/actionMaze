@@ -6,6 +6,7 @@
 #include "entities/Player.h"
 #include "progress/Arsenal.h"
 #include "progress/Spellbook.h"
+#include "render/WeaponPreview.h"
 #include "ui/UiText.h"
 #include "ui/UiTheme.h"
 
@@ -158,6 +159,10 @@ void CharacterSheet::Toggle()
         tab = Tab::Stats;
         picking = -1;
         scroll = 0;
+
+        // A fresh session's worth of nothing spent yet - see the note on `pending`.
+        pending = StatBlock{};
+        pendingCount = 0;
     }
 }
 
@@ -272,7 +277,14 @@ CharacterSheet::Layout CharacterSheet::Measure() const
 
     const float footerY = out.page.y + out.page.height - ButtonH*out.ls;
 
-    out.respec = { out.page.x, footerY, 150.0f*out.ls, ButtonH*out.ls };
+    // CANCEL and CONFIRM sit side by side where the old RESPEC button was - see
+    // the class comment. Same combined width as the single button it replaced,
+    // so the footer's shape does not change between tabs that show the pair and
+    // tabs that do not.
+    out.cancel = { out.page.x, footerY, 110.0f*out.ls, ButtonH*out.ls };
+    out.confirm = { out.cancel.x + out.cancel.width + 8.0f*out.ls, footerY,
+                    110.0f*out.ls, ButtonH*out.ls };
+
     out.close = { out.page.x + out.page.width - 180.0f*out.ls, footerY,
                   180.0f*out.ls, ButtonH*out.ls };
 
@@ -410,6 +422,11 @@ void CharacterSheet::Update(Player &player, const Arsenal &arsenal, const Spellb
 
         player.SpendPoint((Stat)row);
 
+        // Recorded alongside the real spend, so CANCEL knows exactly this much to
+        // give back - see the note on `pending`.
+        StatAdd(pending, (Stat)row, 1);
+        pendingCount++;
+
         // One point per click, and one button per click. A held button that spent
         // continuously would empty a level's whole budget into one stat faster than
         // the number under it could be read.
@@ -441,30 +458,59 @@ void CharacterSheet::Update(Player &player, const Arsenal &arsenal, const Spellb
     // Clicking the trait already in the slot takes it OFF, which is the only way to
     // empty a slot and is why that row is left in the list at all.
     //------------------------------------------------------------------------------
-    if (picking < 0) return;
-
-    for (int slot = 0; slot < page.listVisible; ++slot)
+    if (picking >= 0)
     {
-        const int index = scroll + slot;
+        for (int slot = 0; slot < page.listVisible; ++slot)
+        {
+            const int index = scroll + slot;
 
-        if (index >= ownedCount) break;
-        if (!in.Over(page.ListRowAt(slot))) continue;
+            if (index >= ownedCount) break;
+            if (!in.Over(page.ListRowAt(slot))) continue;
 
-        const int id = owned[index];
+            const int id = owned[index];
 
-        if (traits.Equipped(picking) == id) traits.Unequip(picking);
-        else                                traits.Equip(picking, id);
+            if (traits.Equipped(picking) == id) traits.Unequip(picking);
+            else                                traits.Equip(picking, id);
 
-        picking = -1;
+            picking = -1;
+
+            return;
+        }
+    }
+
+    //------------------------------------------------------------------------------
+    // CANCEL and CONFIRM, for whatever was just spent - see the note on `pending`.
+    //
+    // Both are checked regardless of whether a pick list happens to be open: they
+    // sit in the footer, well clear of it, and gating them behind `picking < 0` -
+    // the bug this replaced, where the old RESPEC button lived behind exactly that
+    // return and so could never actually be reached - is the one mistake this is
+    // here to not repeat.
+    //------------------------------------------------------------------------------
+    if ((pendingCount > 0) && in.Over(page.cancel))
+    {
+        player.RevertPoints(pending);
+
+        pending = StatBlock{};
+        pendingCount = 0;
 
         return;
     }
 
-    if (in.Over(page.respec)) player.RespecStats();
+    if ((pendingCount > 0) && in.Over(page.confirm))
+    {
+        // Nothing to do to the player - a confirmed point is exactly a spent one,
+        // which SpendPoint already applied. This only lets go of what CANCEL would
+        // otherwise take back.
+        pending = StatBlock{};
+        pendingCount = 0;
+
+        return;
+    }
 }
 
 void CharacterSheet::Draw(const Player &player, const Arsenal &arsenal, const Spellbook &spells,
-                          const TraitLoadout &traits) const
+                          const TraitLoadout &traits, WeaponPreview &preview) const
 {
     if (!open) return;
 
@@ -512,7 +558,7 @@ void CharacterSheet::Draw(const Player &player, const Arsenal &arsenal, const Sp
                         active ? UiAccent : UiDim);
     }
 
-    if (tab == Tab::Inventory) { DrawInventoryTab(page, arsenal); }
+    if (tab == Tab::Inventory) { DrawInventoryTab(page, arsenal, preview); }
     else if (tab == Tab::Magic) { DrawMagicTab(page, player, spells); }
     else
     {
@@ -706,20 +752,27 @@ void CharacterSheet::Draw(const Player &player, const Arsenal &arsenal, const Sp
     UiLabel(money, page.page.x, page.purseY, SmallSize*ls, UiAccent);
 
     //------------------------------------------------------------------------------
-    // The respec, and what it costs, which is nothing. Stats-only: undoing a spend
-    // means nothing on a page that shows what is owned or what a school does.
+    // CANCEL and CONFIRM, for whatever has been spent this session - see the note
+    // on `pending` in CharacterSheet.h. Stats-only: there is nothing to confirm or
+    // cancel on a page that only shows what is owned or what a school does.
     //
-    // Said on the button's own line rather than left to be discovered. The rates in
-    // this system are new and will move; a player who cannot undo a spend is being
-    // asked to commit to numbers that have not settled, and one who can undo it but
-    // does not know that is in exactly the same position.
+    // Both grey out together when nothing has been spent yet, rather than one of
+    // them being permanently live - a CONFIRM with nothing to confirm is not a
+    // no-op worth offering, and greying both is what tells the player at a glance
+    // that this level is already settled.
     //------------------------------------------------------------------------------
     if (tab == Tab::Stats)
     {
-        UiButton(page.respec, true, ls, in, "RESPEC", UiPanel, UiInk);
+        const bool anyPending = (pendingCount > 0);
 
-        UiLabel("free, any time", page.respec.x + page.respec.width + 12.0f*ls,
-                page.respec.y + (page.respec.height - SmallSize*ls)*0.5f, SmallSize*ls, UiDim);
+        UiButton(page.cancel, anyPending, ls, in, "CANCEL", UiPanel, UiInk);
+        UiButton(page.confirm, anyPending, ls, in, "CONFIRM", UiPanel, UiReady);
+
+        UiLabel(anyPending ? TextFormat("%i point%s spent this visit", pendingCount,
+                                        (pendingCount == 1) ? "" : "s")
+                          : "nothing spent this visit",
+                page.confirm.x + page.confirm.width + 12.0f*ls,
+                page.confirm.y + (page.confirm.height - SmallSize*ls)*0.5f, SmallSize*ls, UiDim);
     }
 
     UiButton(page.close, true, ls, in, "CLOSE   TAB", UiPanel, UiInk);
@@ -730,7 +783,8 @@ void CharacterSheet::Draw(const Player &player, const Arsenal &arsenal, const Sp
 // weapon it is. Read-only - equipping is still the wheel's job, this is where you
 // check what you are carrying before you decide to change it.
 //----------------------------------------------------------------------------------
-void CharacterSheet::DrawInventoryTab(const Layout &page, const Arsenal &arsenal) const
+void CharacterSheet::DrawInventoryTab(const Layout &page, const Arsenal &arsenal,
+                                      WeaponPreview &preview) const
 {
     const float ls = page.ls;
 
@@ -764,14 +818,21 @@ void CharacterSheet::DrawInventoryTab(const Layout &page, const Arsenal &arsenal
         UiRow(box, ls, false, UiAccent);
         DrawRectangleRec({ box.x, box.y, 4.0f*ls, box.height }, UiAccent);
 
-        UiLabel(arsenal.NameAt(id), box.x + (RowPad + 8.0f)*ls, box.y + 6.0f*ls,
-                SmallSize*ls + 2.0f*ls, UiInk);
+        // The weapon itself, turning, in place of its name - see
+        // render/WeaponPreview.h. The name is still what the row is keyed by; it
+        // is just a model to look up now rather than a string to print.
+        const float iconSize = box.height - 6.0f*ls;
+        const Rectangle icon = { box.x + 8.0f*ls, box.y + 3.0f*ls, iconSize, iconSize };
+
+        preview.Draw(arsenal.NameAt(id), icon);
+
+        const float textLeft = icon.x + icon.width + RowPad*ls;
 
         const std::string tagText = WeaponTagsText(arsenal.TagsAt(id));
 
         UiLabel(TextFormat("dmg %i    reach %.1f    %s", arsenal.DamageAt(id),
                            arsenal.ReachAt(id), tagText.c_str()),
-                box.x + (RowPad + 8.0f)*ls, box.y + box.height - (SmallSize + 6.0f)*ls,
+                textLeft, box.y + (box.height - (SmallSize - 1.0f)*ls)*0.5f,
                 SmallSize*ls - 1.0f*ls, UiDim);
 
         const bool maxed = !arsenal.CanForge(id);

@@ -23,6 +23,18 @@ public:
 
     void Update(float delta, Vector3 bodyPosition, Vector2 move, bool crouching, bool grounded);
 
+    //------------------------------------------------------------------------------
+    // A jolt to the view: a blow landing, a crit going out. Adds to `trauma`
+    // rather than setting it, so a second hit a frame after the first makes the
+    // shake worse instead of just restarting it - see Config::CameraShakeDecay.
+    //
+    // Purely cosmetic and applied AFTER UpdateView has already placed the camera
+    // from the body and the look rotation, so it never touches `lookRotation` -
+    // the aim the player is actually tracking is untouched by how hard the
+    // screen happens to be shaking.
+    //------------------------------------------------------------------------------
+    void Shake(float trauma);
+
     const Camera3D &Get() const { return camera; }
     float Yaw() const { return lookRotation.x; }
 
@@ -41,4 +53,8 @@ private:
     float headTimer = 0.0f;
     float walkLerp = 0.0f;
     float headLerp = Config::StandHeight;
+
+    // How rough the view is right now, 0 (still) to 1 (as rough as it gets) -
+    // see Shake and Config::CameraShakeDecay.
+    float shakeTrauma = 0.0f;
 };

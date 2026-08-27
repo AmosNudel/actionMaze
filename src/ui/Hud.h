@@ -89,6 +89,18 @@ private:
 
     void DrawCrosshair() const;
 
+    //------------------------------------------------------------------------------
+    // The red bar for the last blow that landed, on the side of the screen it came
+    // in from - see Player::lastHitFrom and its neighbours.
+    //
+    // Reads the player's own record of the hit rather than taking one as an
+    // argument: Player already has to remember it for as long as the fade lasts,
+    // and a second copy kept here would be the same three fields drifting out of
+    // step with the first the moment a floor change or a respawn touched one and
+    // not the other.
+    //------------------------------------------------------------------------------
+    void DrawHurtIndicator(const Player &player, const Camera3D &camera) const;
+
     // Where the floor's two bars start and how wide they run. Shared, because the
     // chaos bar and the event bar under it have to agree to the pixel.
     float FloorBarLeft() const;

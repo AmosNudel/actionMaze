@@ -110,13 +110,23 @@ public:
     // `direction` need not be normalised; a zero direction is ignored. The default
     // look is the shared arrow, aligned to its flight - what an enemy crossbow
     // wants, and what a staff's bolt borrows until there is a spell model for it.
+    //
+    // `crit` carries whether the damage already rolled a critical - the same
+    // figure ResolveDamage folded into `damage` at the moment this was fired.
+    // Kept alongside it rather than re-derived, because a shot re-rolling on
+    // impact would crit eventually just by living long enough. Only ever read
+    // back for a shot AtEnemies - see the note on Update's return.
     void Spawn(Vector3 from, Vector3 direction, float speed, int damage, ProjectileSide side,
-               ProjectileLook look = ProjectileLook{});
+               ProjectileLook look = ProjectileLook{}, bool crit = false);
 
     // `vfx` is where a mote goes when it stops. Passed in rather than held because
     // the effect pool is shared with everything else that flashes, and a projectile
     // manager that owned one would be the only thing able to use it.
-    void Update(float delta, Level &level, Player &player, std::vector<Enemy> &enemies,
+    //
+    // Returns whether any shot AtEnemies that landed this call was carrying a
+    // crit - what the camera shake reads, the ranged half of the same signal
+    // SweepMelee's MeleeResult::crit gives the melee half.
+    bool Update(float delta, Level &level, Player &player, std::vector<Enemy> &enemies,
                 VfxManager &vfx);
 
     // Motes are billboards, so the draw needs to know which way the player is
@@ -137,6 +147,7 @@ private:
         Vector3 origin{};
         float life = 0.0f;      // Counts down; a shot that hits nothing expires
         int damage = 0;
+        bool crit = false;      // See the note on Spawn
         ProjectileSide side = ProjectileSide::AtPlayer;
         ProjectileLook look;    // Resolved at spawn: never carries a null model
 
@@ -153,9 +164,12 @@ private:
     };
 
     // One substep. Returns false when the shot is finished travelling - either
-    // spent, or stopped somewhere it will now sit.
+    // spent, or stopped somewhere it will now sit. Sets `enemyCrit` when this
+    // substep is what lands a critical AtEnemies shot; never clears it, so a
+    // caller stepping several shots in one frame can share one flag across all
+    // of them.
     bool Advance(Shot &shot, float step, Level &level, Player &player,
-                 std::vector<Enemy> &enemies, VfxManager &vfx) const;
+                 std::vector<Enemy> &enemies, VfxManager &vfx, bool &enemyCrit) const;
 
     // The motes, drawn as camera-facing billboards ahead of the geometry pass
     void DrawMotes(const Camera3D &camera) const;

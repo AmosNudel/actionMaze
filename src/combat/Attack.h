@@ -90,6 +90,11 @@ struct MeleeResult
 {
     int hits = 0;
     int damage = 0;
+
+    // Whether ANY of this sweep's hits rolled a critical - rolled per body, so a
+    // stroke that catches three enemies has three chances at it. What the camera
+    // shake reads to tell a crit landing from an ordinary blow.
+    bool crit = false;
 };
 
 // `attacker` is the stats the blow is struck with - the player's own line plus what

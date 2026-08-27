@@ -6,6 +6,7 @@
 #include "progress/Arsenal.h"
 #include "progress/Spellbook.h"
 #include "progress/Traits.h"
+#include "render/WeaponPreview.h"
 #include "ui/UiText.h"
 #include "ui/UiTheme.h"
 
@@ -420,7 +421,7 @@ void ShopScreen::Update(Player &player, Arsenal &arsenal, Spellbook &spells,
 }
 
 void ShopScreen::Draw(const Player &player, const Arsenal &arsenal, const Spellbook &spells,
-                      const TraitLoadout &traits) const
+                      const TraitLoadout &traits, WeaponPreview &preview) const
 {
     if (!open) return;
 
@@ -486,10 +487,30 @@ void ShopScreen::Draw(const Player &player, const Arsenal &arsenal, const Spellb
         // page uses. It is a thing to find a row by rather than to read.
         DrawRectangleRec({ box.x, box.y, 4.0f*ls, box.height }, row.tint);
 
-        UiLabel(row.name.c_str(), box.x + (RowPad + 8.0f)*ls, box.y + 8.0f*ls, RowSize*ls, UiInk);
+        //----------------------------------------------------------------------
+        // The merchant's rows show the weapon itself, turning, instead of
+        // printing its name - the name is still what BuildRows carries in
+        // `row.name`, but here it is a model to look up rather than a string to
+        // print. Everyone else's rows are unchanged: a school or a trait has no
+        // model to show in its place.
+        //----------------------------------------------------------------------
+        if (vendor == NpcKind::Merchant)
+        {
+            const float iconSize = box.height - 6.0f*ls;
+            const Rectangle icon = { box.x + 3.0f*ls, box.y + 3.0f*ls, iconSize, iconSize };
 
-        UiLabel(row.detail.c_str(), box.x + (RowPad + 8.0f)*ls,
-                box.y + (8.0f + RowSize + 3.0f)*ls, NoteSize*ls, UiDim);
+            preview.Draw(row.name, icon);
+
+            UiLabel(row.detail.c_str(), icon.x + icon.width + RowPad*ls,
+                    box.y + (box.height - NoteSize*ls)*0.5f, NoteSize*ls, UiDim);
+        }
+        else
+        {
+            UiLabel(row.name.c_str(), box.x + (RowPad + 8.0f)*ls, box.y + 8.0f*ls, RowSize*ls, UiInk);
+
+            UiLabel(row.detail.c_str(), box.x + (RowPad + 8.0f)*ls,
+                    box.y + (8.0f + RowSize + 3.0f)*ls, NoteSize*ls, UiDim);
+        }
 
         const Rectangle button = { box.x + box.width - (ButtonW + RowPad)*ls,
                                    box.y + (box.height - ButtonH*ls)*0.5f,

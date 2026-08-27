@@ -2,6 +2,17 @@
 
 #include "raymath.h"
 
+namespace
+{
+    // A fresh pick every call rather than a smoothed noise function: a shake this
+    // short is meant to read as a shock, not a sway, and a random jitter each
+    // frame is exactly that. -amount..+amount.
+    float RandomSigned(float amount)
+    {
+        return (GetRandomValue(-1000, 1000)/1000.0f)*amount;
+    }
+}
+
 FpsCamera::FpsCamera()
 {
     camera.fovy = Config::FovDefault;
@@ -47,6 +58,39 @@ void FpsCamera::Update(float delta, Vector3 bodyPosition, Vector2 move, bool cro
     lean.y = Lerp(lean.y, move.y*Config::LeanForward, Config::LeanLerpSpeed*delta);
 
     UpdateView();
+
+    //------------------------------------------------------------------------------
+    // The shake, applied last and never stored back into position or rotation -
+    // UpdateView rebuilds both from scratch every frame, so trauma decaying to
+    // zero over a couple of frames undoes itself automatically rather than
+    // needing to be subtracted back out.
+    //------------------------------------------------------------------------------
+    shakeTrauma -= Config::CameraShakeDecay*delta;
+    if (shakeTrauma < 0.0f) shakeTrauma = 0.0f;
+    if (shakeTrauma > 1.0f) shakeTrauma = 1.0f;
+
+    if (shakeTrauma > 0.0f)
+    {
+        // Squared, so a little trauma is barely felt and a lot of it is genuinely
+        // rough - see the note on Config::CameraShakeDecay.
+        const float power = shakeTrauma*shakeTrauma;
+        const float offset = Config::CameraShakeMaxOffset*power;
+
+        const Vector3 forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+        const Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, camera.up));
+
+        const Vector3 kick = Vector3Add(Vector3Scale(right, RandomSigned(offset)),
+                                        Vector3Scale(camera.up, RandomSigned(offset)));
+
+        camera.position = Vector3Add(camera.position, kick);
+        camera.target = Vector3Add(camera.target, kick);
+    }
+}
+
+void FpsCamera::Shake(float trauma)
+{
+    shakeTrauma += trauma;
+    if (shakeTrauma > 1.0f) shakeTrauma = 1.0f;
 }
 
 Vector3 FpsCamera::Forward() const

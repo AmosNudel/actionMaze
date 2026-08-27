@@ -88,9 +88,14 @@ public:
     // floor. See Arsenal::IsOffered / RerollOffers - same idiom. RESPEC and a
     // trait already owned are never gated by this; only what is unowned and could
     // be bought is.
+    //
+    // `maxAffordable`, when non-zero, guarantees one offer priced at or under it
+    // (if one exists) before the rest of `count` is filled at random - see
+    // Config::CaptainCheapGuaranteeDepth. Same idiom as Arsenal::RerollOffers'
+    // `guaranteeTag`, over price instead of a weapon tag.
     //------------------------------------------------------------------------------
     bool IsOffered(int id) const;
-    void RerollOffers(int count);
+    void RerollOffers(int count, int maxAffordable = 0);
 
     int Equipped(int slot) const;
 

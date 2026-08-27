@@ -17,6 +17,7 @@
 #include "render/ViewModel.h"
 #include "render/Portal.h"
 #include "render/Vfx.h"
+#include "render/WeaponPreview.h"
 #include "ui/CharacterSheet.h"
 #include "ui/Hud.h"
 #include "ui/PauseMenu.h"
@@ -192,6 +193,12 @@ private:
     RunEndScreen runEnd;
     ViewModel viewModel;
     ViewModelEditor viewModelEditor;
+
+    // What the shop and character pages draw instead of a weapon's name - see
+    // render/WeaponPreview.h. Owned here rather than by either page: both read
+    // from it, and a render target per page would be twice the GPU memory for a
+    // picture that is never on screen twice at once.
+    WeaponPreview weaponPreview;
     CombatDebug combatDebug;
 
     InputState input;

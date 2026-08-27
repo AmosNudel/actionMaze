@@ -2,6 +2,8 @@
 
 #include "combat/Stats.h"
 
+#include <vector>
+
 namespace
 {
     // Shorthand for a row that grants stat points. Written out rather than a macro so
@@ -20,9 +22,13 @@ namespace
     // about whether to spend them on one rule or four points.
     //
     // The prices are in CONTRACTS, which come only from events - so a whole floor
-    // cleared of objectives is two or three of them. A four-contract trait is two
-    // floors of choosing to walk into the marker, which is the right price for
-    // something that changes how the character works for the rest of the run.
+    // cleared of objectives is two to four of them, two in the worst case where
+    // both roll their minimum. A rule trait sits at 2 for exactly that reason: it
+    // has to be reachable off one ordinary floor's worst-case income, not saved
+    // for. A conversion at 4 is two floors of choosing to walk into the marker,
+    // which is the right price for something that changes how the character
+    // works for the rest of the run - see also Config::CaptainCheapGuaranteeDepth,
+    // which keeps the captain from rolling nothing a first floor can afford at all.
     //
     // Nothing here grants raw damage. Points and forging already sell that, and a
     // third source of the same number would only move the same slider.
@@ -53,28 +59,28 @@ namespace
         // The sustain answer, and the one trait that rewards being in the middle of
         // the room rather than at the edge of it. Worth nothing at all if you are
         // not connecting, which is the whole point.
-        { "LEECH", "blows return 8% as health", { 200, 60, 70, 255 }, 3,
+        { "LEECH", "blows return 8% as health", { 200, 60, 70, 255 }, 2,
           { Points(0, 0, 0, 0), 0, 0, 0, 0,
             0.0f, 0.0f, 0.0f, 0.08f } },
 
         // Buys the crit build its ceiling early. Flat rather than a percentage of
         // the rolled chance, so it is worth the same to a character who has spent
         // nothing on skill - which makes it a genuine alternative to spending on it.
-        { "KEEN", "+8% critical chance", { 250, 220, 120, 255 }, 3,
+        { "KEEN", "+8% critical chance", { 250, 220, 120, 255 }, 2,
           { Points(0, 0, 0, 0), 0, 0, 0, 0,
             0.0f, 0.0f, 0.08f } },
 
         // The caster's economy. Casting is paid for by killing, and this is the trait
         // that makes a spell build able to fund itself off its own kills without
         // breaking the rule that one cast can never pay for the next.
-        { "SIPHON", "+1 mana for every kill", { 190, 130, 255, 255 }, 3,
+        { "SIPHON", "+1 mana for every kill", { 190, 130, 255, 255 }, 2,
           { Points(0, 0, 0, 0), 0, 0, 0, 0,
             0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1 } },
 
         // The other half of the caster's economy, and priced against SIPHON on
         // purpose: one makes casts cheaper and the other makes them come back
         // faster, and which is better depends entirely on how fast the run kills.
-        { "FRUGAL", "spells cost 20% less", { 190, 160, 255, 255 }, 3,
+        { "FRUGAL", "spells cost 20% less", { 190, 160, 255, 255 }, 2,
           { Points(0, 0, 0, 0), 0, 0, 0, 0,
             0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -0.20f } },
 
@@ -87,7 +93,7 @@ namespace
         // Speed, on both hands and on the cast. The most generally useful row in the
         // table and priced for it - there is no build this is bad for, which is
         // exactly why it must not be cheap.
-        { "QUICK", "swing and cast 12% faster", { 255, 195, 110, 255 }, 4,
+        { "QUICK", "swing and cast 12% faster", { 255, 195, 110, 255 }, 3,
           { Points(0, 0, 0, 0), 0, 0, 0, 0,
             0.12f } },
 
@@ -105,7 +111,7 @@ namespace
 
         // Turns a caster's investment into a weapon. Reads the arcane the character
         // ENDED UP with, upgrades included - see ApplyModifiers.
-        { "SPELLBLADE", "30% of arcane counts as arms", { 200, 150, 255, 255 }, 5,
+        { "SPELLBLADE", "30% of arcane counts as arms", { 200, 150, 255, 255 }, 4,
           { Points(0, 0, 0, 0), 0, 0, 0, 0,
             0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0,
             { { (unsigned char)Stat::Arcane, (unsigned char)Stat::Arms, 0.30f } }, 1 } },
@@ -113,7 +119,7 @@ namespace
         // And the reverse, for the character who spent on the sword and wants the
         // spells to keep up. Priced the same because neither is better - they are
         // the same trait read from the two ends of the same decision.
-        { "WARLOCK", "30% of arms counts as arcane", { 255, 150, 200, 255 }, 5,
+        { "WARLOCK", "30% of arms counts as arcane", { 255, 150, 200, 255 }, 4,
           { Points(0, 0, 0, 0), 0, 0, 0, 0,
             0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0,
             { { (unsigned char)Stat::Arms, (unsigned char)Stat::Arcane, 0.30f } }, 1 } },
@@ -202,7 +208,7 @@ bool TraitLoadout::IsOffered(int id) const
 
 // See the note on Arsenal::RerollOffers - same idiom, over the trait table rather
 // than the weapon list.
-void TraitLoadout::RerollOffers(int count)
+void TraitLoadout::RerollOffers(int count, int maxAffordable)
 {
     const int total = TraitCount();
 
@@ -217,7 +223,36 @@ void TraitLoadout::RerollOffers(int count)
     if (wanted > unowned) wanted = unowned;
 
     int placed = 0;
-    int guard = 0;
+
+    //------------------------------------------------------------------------------
+    // The cheap guarantee, spent first - see the note on Config::
+    // CaptainCheapGuaranteeDepth. Collected into a candidate list rather than
+    // rolled-and-rejected like the ordinary fill below, because "priced at or
+    // under the cap" can be a small slice of a twelve row table and rejection
+    // sampling would spin for a while before giving up.
+    //------------------------------------------------------------------------------
+    if ((maxAffordable > 0) && (placed < wanted))
+    {
+        std::vector<int> candidates;
+
+        for (int i = 0; i < total; ++i)
+        {
+            if (Owns(i)) continue;
+            if (TraitAt(i).price > maxAffordable) continue;
+
+            candidates.push_back(i);
+        }
+
+        if (!candidates.empty())
+        {
+            const int pick = candidates[(std::size_t)GetRandomValue(0, (int)candidates.size() - 1)];
+
+            offered[pick] = 1;
+            placed++;
+        }
+    }
+
+    int guard = 0;      // Bails out rather than spinning forever on a bad count
 
     while ((placed < wanted) && (guard < 1000))
     {

@@ -67,6 +67,7 @@ void Game::Init()
     sky.Load(assets, Config::SkyCubemap);
 
     viewModel.Load(assets);
+    weaponPreview.Load(assets);
     enemies.Load(assets);
     hud.Load(assets);
     projectiles.Load(assets);
@@ -209,9 +210,14 @@ void Game::RerollVendorStock()
     // it is an ordinary random reroll.
     const unsigned guarantee = (level.Depth() == 1) ? (unsigned)TagCasting : 0u;
 
+    // Same reasoning as the merchant's castable guarantee above, for the
+    // captain's cheapest rows - see Config::CaptainCheapGuaranteeDepth.
+    const int cheapCap = (level.Depth() <= Config::CaptainCheapGuaranteeDepth)
+                        ? Config::CaptainCheapGuaranteePrice : 0;
+
     arsenal.RerollOffers(Config::MerchantStockPerFloor, guarantee);
     spells.RerollOffers(Config::MysticStockPerFloor);
-    traits.RerollOffers(Config::CaptainStockPerFloor);
+    traits.RerollOffers(Config::CaptainStockPerFloor, cheapCap);
 }
 
 //----------------------------------------------------------------------------------
@@ -738,6 +744,12 @@ void Game::UpdateWorld(float delta)
 
     viewModel.Update(weaponInput);
 
+    // Whether anything the player did this frame - a sweeping blade or a shot
+    // that lands - rolled a critical, for the camera shake at the end of this
+    // function. One flag across both hands and every shot: a frame that crits
+    // twice should not shake any harder than a frame that crits once.
+    bool critLanded = false;
+
     // The blade sweeps from where it was to where it is, and damage lands wherever
     // along that path it passed through a body - so a swing that visibly misses
     // does miss. Every frame of the live window, not once at a fixed blend.
@@ -757,6 +769,8 @@ void Game::UpdateWorld(float delta)
                                              player.Attack((Hand)h));
 
         combatDebug.NoteHit(melee.hits);
+
+        if (melee.crit) critLanded = true;
 
         // What the weapon drank. Paid on what actually came off the bodies rather
         // than on what was swung for, so a stroke a guard ate returns nothing - and
@@ -889,7 +903,7 @@ void Game::UpdateWorld(float delta)
 
             projectiles.Spawn(muzzle, AimDirectionFrom(muzzle), speed,
                               ResolveDamage(raw, fighting, crit),
-                              ProjectileSide::AtEnemies, look);
+                              ProjectileSide::AtEnemies, look, crit);
         }
 
         blades[h] = blade;
@@ -900,7 +914,7 @@ void Game::UpdateWorld(float delta)
 
     // After both sides have fired, so anything released this frame takes its first
     // step now rather than hanging in the weapon until the next one
-    projectiles.Update(delta, level, player, enemies.All(), vfx);
+    if (projectiles.Update(delta, level, player, enemies.All(), vfx)) critLanded = true;
 
     // After the shots, so an impact set off this frame shows its first frame now
     // rather than a frame behind whatever caused it
@@ -968,6 +982,20 @@ void Game::UpdateWorld(float delta)
 
     enemies.RemoveDead();
     combatDebug.Update(delta);
+
+    //------------------------------------------------------------------------------
+    // The camera shake, once everything this frame that could have landed a blow
+    // either way has had its say - the player's own melee and shots above, and
+    // whatever enemies.Update and events.Update did to the player before this
+    // point in the frame.
+    //------------------------------------------------------------------------------
+    if (critLanded) camera.Shake(Config::CameraShakeOnCrit);
+
+    if (player.hitPending)
+    {
+        camera.Shake(Config::CameraShakeOnHit);
+        player.hitPending = false;
+    }
 
     //------------------------------------------------------------------------------
     // The way down.
@@ -1072,8 +1100,8 @@ void Game::Draw()
         // CharacterSheet.h and PauseMenu.h. The sheet last: it is what the menu
         // opens, so it has to sit on top of the menu that opened it.
         pause.Draw(chaos.cleared);
-        shop.Draw(player, arsenal, spells, traits);
-        sheet.Draw(player, arsenal, spells, traits);
+        shop.Draw(player, arsenal, spells, traits, weaponPreview);
+        sheet.Draw(player, arsenal, spells, traits, weaponPreview);
 
         // Over all of them: once a run has ended none of the pages above it are
         // reachable any more (UpdateRunEnd shortcuts past UpdateScreens entirely),
@@ -1090,6 +1118,7 @@ void Game::Shutdown()
     level.Unload();
     sky.Unload();
     viewModel.Unload();
+    weaponPreview.Unload();
     enemies.Unload();
     assets.UnloadAll();     // Must happen while the GL context is still alive
 

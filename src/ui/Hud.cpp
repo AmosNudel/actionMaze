@@ -111,6 +111,7 @@ void Hud::Draw(const Player &player, const ViewModel &viewModel, const Level &le
     minimap.Draw(level, events, vendors, player.Position(), player.Yaw());
 
     DrawCrosshair();
+    DrawHurtIndicator(player, camera);
 
     DrawLeftColumn(player, level, magic, spells);
     DrawProgress(player);
@@ -196,6 +197,75 @@ void Hud::DrawCrosshair() const
     DrawLineEx({ cx + gap, cy }, { cx + gap + len, cy }, weight, RAYWHITE);
     DrawLineEx({ cx, cy - gap - len }, { cx, cy - gap }, weight, RAYWHITE);
     DrawLineEx({ cx, cy + gap }, { cx, cy + gap + len }, weight, RAYWHITE);
+}
+
+//----------------------------------------------------------------------------------
+// The hurt indicator: a red bar on the ring around the crosshair, at the point
+// closest to where the last blow actually came from.
+//
+// Built from the player's own facing rather than the world: "the right edge of
+// the screen" is the only vocabulary a directional indicator can use, and that is
+// a question about the camera, not about compass directions. A blow from a body
+// standing due north means nothing on its own - it is a bar on the LEFT if the
+// player is facing east and a bar behind them if they are facing north.
+//
+// A hit with no real source - the seal's bolts, which land from directly
+// overhead - draws as a ring around the whole crosshair instead of a bar at one
+// point on it, because inventing a side would tell the player which way to turn
+// and there is nowhere better to turn to.
+//----------------------------------------------------------------------------------
+void Hud::DrawHurtIndicator(const Player &player, const Camera3D &camera) const
+{
+    if (player.lastHitAge >= Config::HurtIndicatorTime) return;
+
+    const float ui = UiScale();
+    const float fade = 1.0f - player.lastHitAge/Config::HurtIndicatorTime;
+
+    const float screenW = (float)GetScreenWidth();
+    const float screenH = (float)GetScreenHeight();
+
+    const Vector2 center = { screenW*0.5f, screenH*0.5f };
+    const float radius = fminf(screenW, screenH)*Config::HurtIndicatorRadius;
+
+    if (!player.lastHitDirectional)
+    {
+        DrawRing(center, radius - 3.0f*ui, radius + 3.0f*ui, 0.0f, 360.0f, 48,
+                 Fade(HealthFill, fade*0.55f));
+
+        return;
+    }
+
+    Vector3 toSource = Vector3Subtract(player.lastHitFrom, player.Position());
+    toSource.y = 0.0f;
+
+    // Close enough to standing where the blow landed that a direction would be
+    // noise rather than information - leave it at the top rather than divide by
+    // whatever is left of a near-zero vector.
+    float angle = 0.0f;
+
+    if (Vector3LengthSqr(toSource) > 1e-4f)
+    {
+        const Vector3 forward = Vector3Normalize({ camera.target.x - camera.position.x, 0.0f,
+                                                    camera.target.z - camera.position.z });
+        const Vector3 right = Vector3CrossProduct(forward, { 0.0f, 1.0f, 0.0f });
+
+        toSource = Vector3Normalize(toSource);
+
+        // 0 dead ahead, +-pi/2 either side, pi behind - see the note above on why
+        // this is relative to the camera rather than to the world.
+        angle = atan2f(Vector3DotProduct(toSource, right), Vector3DotProduct(toSource, forward));
+    }
+
+    const Vector2 pos = { center.x + sinf(angle)*radius, center.y - cosf(angle)*radius };
+
+    const Rectangle bar = { pos.x, pos.y, Config::HurtIndicatorLength*ui,
+                            Config::HurtIndicatorWidth*ui };
+    const Vector2 origin = { bar.width*0.5f, bar.height*0.5f };
+
+    // Tangent to the ring - see the note above - so it reads as a mark on the
+    // circle rather than an arrow, which would claim a precision ("exactly this
+    // many degrees") the indicator was never meant to promise.
+    DrawRectanglePro(bar, origin, angle*RAD2DEG, Fade(HealthFill, fade*0.85f));
 }
 
 //----------------------------------------------------------------------------------

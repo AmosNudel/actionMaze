@@ -10,6 +10,7 @@ class Player;
 class Arsenal;
 class Spellbook;
 class TraitLoadout;
+class WeaponPreview;
 
 //----------------------------------------------------------------------------------
 // The vendor's counter: one page, three shops.
@@ -56,9 +57,12 @@ public:
     // Reads the mouse and moves things across the counter. Only call while open.
     void Update(Player &player, Arsenal &arsenal, Spellbook &spells, TraitLoadout &traits);
 
-    // Screen space, after EndMode3D
+    // Screen space, after EndMode3D. `preview` draws the merchant's rotating
+    // weapon icons - see render/WeaponPreview.h - and is mutable despite this
+    // being a const method: it owns a render target it redraws every row, and
+    // nothing about the shop's own state changes because of it.
     void Draw(const Player &player, const Arsenal &arsenal, const Spellbook &spells,
-              const TraitLoadout &traits) const;
+              const TraitLoadout &traits, WeaponPreview &preview) const;
 
 private:
     //------------------------------------------------------------------------------
