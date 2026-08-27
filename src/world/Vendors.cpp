@@ -41,7 +41,11 @@ void VendorManager::Place(const Level &level)
         Vendor vendor;
 
         vendor.kind = (NpcKind)which[(size_t)i];
-        vendor.at = map.CellCenter(rooms[(size_t)room].CenterX(), rooms[(size_t)room].CenterZ());
+
+        // Random-with-retries against the room's own furniture, rather than the
+        // exact centre an anchor prop usually already occupies - see the note on
+        // Level::FindOpenSpotIn.
+        vendor.at = level.FindOpenSpotIn(rooms[(size_t)room], Config::VendorMarkerRadius);
 
         vendors.push_back(vendor);
     }

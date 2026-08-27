@@ -1,5 +1,6 @@
 #pragma once
 
+#include "combat/MagicKind.h"
 #include "combat/StatBlock.h"
 #include "core/Config.h"
 #include "entities/Body.h"
@@ -171,6 +172,29 @@ struct Enemy
     // (a Warrior's is 1.90s) rather than against anything else.
     float stunTime = 0.0f;
     bool alive = true;
+
+    //------------------------------------------------------------------------------
+    // What magic left behind - see Stats.h for why this replaced elements and
+    // resistances, and Enemy::ApplyMagicEffect for where these are actually set.
+    //
+    // FLAME's burn and REND's bleed share one mechanism (`dotTime` and its
+    // neighbours) because they are the same idea at two different settings; TOXIN
+    // is a separate counter because it stacks rather than ticking on its own clock.
+    // All four tick and decay in EnemyManager::Update alongside poise and stun, on
+    // the same rule those already follow: this is happening TO the body, not a
+    // thing it is doing, so nothing pauses it.
+    //------------------------------------------------------------------------------
+    float dotTime = 0.0f;           // Counts down; at zero there is no DOT running
+    float dotTickTimer = 0.0f;
+    int   dotDamagePerTick = 0;
+    bool  dotSpreads = false;       // FLAME only - spent on the one jump it gets
+
+    int   poisonStacks = 0;         // TOXIN
+    float poisonTickTimer = 0.0f;
+
+    float slowTime = 0.0f;          // SPLASH - see Config::SplashSlowFactor
+    float blindTime = 0.0f;         // FLASH - holds `detection` at zero while it runs
+    float fleeTime = 0.0f;          // TOXIN's panic - see EnemyManager's flee branch
 
     // Guard. `blocking` is the decision the AI made this frame, which is what the
     // feet and the state machine read; IsBlocking() is whether the pose is
@@ -437,6 +461,17 @@ struct Enemy
     // Damage from somewhere, which a raised guard can be pointed at. This is what
     // combat calls; the arc test is the same InCone the player's shield uses.
     void TakeDamageFrom(int amount, Vector3 source);
+
+    //------------------------------------------------------------------------------
+    // What a school of magic does to whatever it just hit, over and above its
+    // damage - see the table in combat/Magic.cpp.
+    //
+    // Not every school is here: SPARK's guaranteed crit is decided at the cast, and
+    // BLAST's shove and NOVA's area both need the caster's own line of travel or the
+    // rest of the enemy list, neither of which an enemy has - see
+    // ProjectileManager::Advance for those two.
+    //------------------------------------------------------------------------------
+    void ApplyMagicEffect(Magic magic);
 
     //------------------------------------------------------------------------------
     // Something came in from `origin`. Start looking there.

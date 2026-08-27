@@ -37,12 +37,14 @@
 //
 // --- What is deliberately NOT here ------------------------------------------------
 // Elements and resistances. The mobile game this is ported from has five damage
-// elements, each answered by one of the four stats, and it is what makes carrying a
-// particular spell into a particular room a decision. It is not in this pass and it
-// is not forgotten: ResolveDamage below is the single funnel every point of damage
-// already goes through, so an element argument and a defender's block is one
-// signature change here rather than a search through every call site. Magic already
-// has eight schools waiting to be given one.
+// elements, each answered by one of the four stats - and this is a decision AGAINST
+// porting it, not a pass that has not gotten there yet. An enemy never answered one
+// element differently to another, so a resistance table would have changed nothing a
+// player could feel; the eight schools get their difference some other way instead,
+// one signature effect per school - a burn, a guaranteed crit, a panic, a shove, a
+// chill, a blind, a real area of effect, a bleed - applied through
+// Enemy::ApplyMagicEffect and catalogued in combat/Magic.cpp. ResolveDamage below
+// stays the one funnel every point of damage goes through either way.
 //----------------------------------------------------------------------------------
 // StatBlock itself is in combat/StatBlock.h - see the note there for why the type
 // and the rates are in different files.

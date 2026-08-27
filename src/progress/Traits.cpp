@@ -161,6 +161,7 @@ void TraitLoadout::Clear()
 {
     for (int i = 0; i < TraitSlots; ++i) slots[i] = -1;
     for (int i = 0; i < MaxTraits; ++i) owned[i] = 0;
+    for (int i = 0; i < MaxTraits; ++i) offered[i] = 0;
 }
 
 bool TraitLoadout::Owns(int id) const
@@ -189,6 +190,45 @@ void TraitLoadout::Take(int id)
     for (int i = 0; i < TraitSlots; ++i)
     {
         if (slots[i] == id) slots[i] = -1;
+    }
+}
+
+bool TraitLoadout::IsOffered(int id) const
+{
+    if ((id < 0) || (id >= MaxTraits)) return false;
+
+    return offered[id] != 0;
+}
+
+// See the note on Arsenal::RerollOffers - same idiom, over the trait table rather
+// than the weapon list.
+void TraitLoadout::RerollOffers(int count)
+{
+    const int total = TraitCount();
+
+    for (int i = 0; i < MaxTraits; ++i) offered[i] = 0;
+
+    int unowned = 0;
+    for (int i = 0; i < total; ++i) { if (!Owns(i)) unowned++; }
+
+    if (unowned <= 0) return;
+
+    int wanted = count;
+    if (wanted > unowned) wanted = unowned;
+
+    int placed = 0;
+    int guard = 0;
+
+    while ((placed < wanted) && (guard < 1000))
+    {
+        guard++;
+
+        const int pick = GetRandomValue(0, total - 1);
+
+        if (Owns(pick) || IsOffered(pick)) continue;
+
+        offered[pick] = 1;
+        placed++;
     }
 }
 

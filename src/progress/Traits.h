@@ -83,6 +83,15 @@ public:
     void Give(int id);
     void Take(int id);      // Sold back. Also unequips it, wherever it was worn.
 
+    //------------------------------------------------------------------------------
+    // Limited stock: which UNOWNED traits the captain is actually selling this
+    // floor. See Arsenal::IsOffered / RerollOffers - same idiom. RESPEC and a
+    // trait already owned are never gated by this; only what is unowned and could
+    // be bought is.
+    //------------------------------------------------------------------------------
+    bool IsOffered(int id) const;
+    void RerollOffers(int count);
+
     int Equipped(int slot) const;
 
     //------------------------------------------------------------------------------
@@ -107,4 +116,5 @@ public:
 private:
     int slots[TraitSlots] = { -1, -1, -1, -1 };
     unsigned char owned[MaxTraits] = { 0 };
+    unsigned char offered[MaxTraits] = { 0 };
 };

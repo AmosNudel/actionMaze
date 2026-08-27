@@ -5,6 +5,8 @@
 #include "raylib.h"
 
 class Player;
+class Arsenal;
+class Spellbook;
 
 //----------------------------------------------------------------------------------
 // Where points are spent, and where traits are worn.
@@ -27,21 +29,25 @@ class Player;
 // tells the truth: the game has stopped, and this is the only thing to do.
 //
 // --- What it shows -----------------------------------------------------------------
-// The four stats and, beside each, the number that stat actually moves. That pairing
-// is the whole design - a row that says "ARMS 14" and nothing else is asking the
-// player to trust a rate they have never seen. The right hand column is what changes
-// when they press the button, so the button is a thing they can reason about.
+// Three tabs. STATS is the original page: the four stats and, beside each, the
+// number that stat actually moves - a row that says "ARMS 14" and nothing else is
+// asking the player to trust a rate they have never seen. Below them, the trait
+// slots - traits are BOUGHT from the captain and WORN here, and swapping between
+// ones already owned is free, because a trait is a build decision and charging to
+// undo one turns experimenting into a punishment.
 //
-// Below them, the trait slots. Traits are BOUGHT from the captain and WORN here, and
-// that split is deliberate: the counter is where contracts are spent and this is
-// where the build is decided, and swapping between traits already owned is free. A
-// trait is a build decision, and charging to undo one turns experimenting into a
-// punishment.
+// INVENTORY and MAGIC are read-only reference pages beside it: every weapon owned
+// and what it does (damage, reach, forge level, its tags), and every school owned
+// and what its signature effect actually is - the answer to "what does casting this
+// do" that used to live only in code comments. Equipping still happens on the mouse
+// wheel and casting still happens on the number keys; these two tabs are where you
+// go to check what you are carrying before you decide to change it.
 //
-// The purse is on this page too, and only on this page. A shop shows the one currency
-// it accepts - three numbers over a counter that takes one of them is two numbers of
-// noise - so somewhere has to show all three, and this is the screen that is about
-// the run rather than about a transaction.
+// The purse is on this page too, and only on this page, on every tab rather than
+// one of them - it is not "the tab about currency", it is a fact about the run that
+// belongs on the screen that is about the run. A shop shows the one currency it
+// accepts; three numbers over a counter that takes one of them is two numbers of
+// noise, so somewhere has to show all three.
 //----------------------------------------------------------------------------------
 class CharacterSheet
 {
@@ -53,13 +59,18 @@ public:
     bool IsOpen() const { return open; }
     void Close() { open = false; }
 
-    // Reads the mouse, spends points and moves traits. Only call while open.
-    void Update(Player &player, TraitLoadout &traits);
+    // Reads the mouse, spends points, moves traits, and switches tabs. Only call
+    // while open. Arsenal and Spellbook are read-only here - Inventory and Magic
+    // are reference tabs, nothing on them is bought or equipped.
+    void Update(Player &player, const Arsenal &arsenal, const Spellbook &spells,
+               TraitLoadout &traits);
 
     // Screen space, after EndMode3D
-    void Draw(const Player &player, const TraitLoadout &traits) const;
+    void Draw(const Player &player, const Arsenal &arsenal, const Spellbook &spells,
+             const TraitLoadout &traits) const;
 
 private:
+    enum class Tab { Stats, Inventory, Magic };
     //------------------------------------------------------------------------------
     // Everything on the page, in screen pixels, worked out from the window.
     //
@@ -77,6 +88,11 @@ private:
         float ls = 1.0f;            // Design pixels to screen pixels
 
         Rectangle page{};           // The content column, centred in the window
+
+        // The three tabs, always drawn regardless of which is active - a tab you
+        // cannot see is a tab you do not know exists.
+        Rectangle tabs[3]{};
+
         Rectangle rows[(int)Stat::Count]{};
         Rectangle plus[(int)Stat::Count]{};
 
@@ -86,6 +102,16 @@ private:
         Rectangle list{};
         float listRowHeight = 0.0f;
         int listVisible = 0;
+
+        //--------------------------------------------------------------------------
+        // The big scrollable area Inventory and Magic each use for their one list
+        // of rows. Spans the same vertical band the Stats tab fills with its stat
+        // rows and trait block - the three tabs are the same page at three
+        // different things to show, not three different page shapes.
+        //--------------------------------------------------------------------------
+        Rectangle content{};
+        float contentRowHeight = 0.0f;
+        int contentVisible = 0;
 
         Rectangle respec{};
         Rectangle close{};
@@ -97,6 +123,7 @@ private:
         float purseY = 0.0f;
 
         Rectangle ListRowAt(int slot) const;
+        Rectangle ContentRowAt(int slot) const;
     };
 
     Layout Measure() const;
@@ -105,15 +132,29 @@ private:
     // Rebuilt per frame from the loadout for the same reason the shop's rows are.
     void BuildPickable(const TraitLoadout &traits, int owned[MaxTraits], int &count) const;
 
+    // The Inventory and Magic tabs. Read-only reference lists, so unlike the Stats
+    // tab's rows these take no UiInput and act on nothing - Draw is their whole
+    // job.
+    void DrawInventoryTab(const Layout &page, const Arsenal &arsenal) const;
+    void DrawMagicTab(const Layout &page, const Player &player, const Spellbook &spells) const;
+
     bool open = false;
+
+    // Which tab is showing. Reset to Stats on open - see Toggle - so the page
+    // never opens onto whichever reference tab was last read.
+    Tab tab = Tab::Stats;
 
     // Which trait slot's list is open, or -1. A slot rather than a trait: the list is
     // "what could go HERE", and a player who has clicked a slot has already decided
     // which one they are filling.
     int picking = -1;
 
-    // How far the pick list is scrolled. Clamped against the count every frame, since
-    // selling a trait shortens it under the cursor.
+    // How far the current tab's list is scrolled - the trait pick list on Stats,
+    // or the Inventory/Magic content list on theirs. Shared rather than one field
+    // per list because exactly one of them is ever visible at a time, and reset to
+    // 0 on every tab switch so a scrolled Inventory list does not leave Magic
+    // opening halfway down. Clamped against the count every frame, since selling a
+    // trait shortens the Stats list under the cursor.
     int scroll = 0;
 
     // True on the frame the page appeared, so the click that OPENED it cannot also

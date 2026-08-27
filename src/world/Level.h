@@ -149,6 +149,16 @@ public:
     //------------------------------------------------------------------------------
     int Depth() const { return depth; }
 
+    //------------------------------------------------------------------------------
+    // Back to zero, so the next Load builds depth 1.
+    //
+    // The one exception to depth counting up across every Load - and it exists for
+    // exactly one caller: starting a fresh run after a defeat or a victory screen,
+    // where "one deeper every call" is precisely wrong. Ordinary play never calls
+    // this; F6 and the portal both want the counter to keep climbing.
+    //------------------------------------------------------------------------------
+    void ResetDepth() { depth = 0; }
+
     // Doors swing on their own once struck, so the level has a little state to
     // carry forward each frame
     void Update(float delta);
@@ -217,6 +227,21 @@ public:
     // Only props that block. A candle underfoot stops nothing and hides nothing.
     //------------------------------------------------------------------------------
     bool PropBlocksAt(Vector3 point, float radius) const;
+
+    //------------------------------------------------------------------------------
+    // Somewhere in `room` that is neither a wall cell nor blocked by a piece of
+    // furniture, chosen by rejection rather than trusted to be the centre.
+    //
+    // The dressing pass keeps an EVENT room's middle clear for its marker (and the
+    // spawn/portal cells clear for the same reason), but an ordinary room is
+    // furnished like any other: an anchor prop usually sits exactly where a naive
+    // caller would put something. Shared by anything that needs one open spot in a
+    // room and cannot assume the centre is it - a vendor's stand, a guaranteed
+    // floor drop - so there is one rejection loop to get right rather than one per
+    // caller. Falls back to the room's centre if every attempt lands on a wall or a
+    // prop.
+    //------------------------------------------------------------------------------
+    Vector3 FindOpenSpotIn(const Room &room, float radius) const;
 
     const std::vector<Prop> &Props() const { return props; }
 

@@ -20,6 +20,22 @@ void Player::Spawn(Vector3 position)
     for (AttackState &attack : attacks) attack.Reset();
 }
 
+void Player::ResetCharacter()
+{
+    stats = StatBlock{};
+
+    level = 1;
+    exp = 0;
+    expToNext = Config::PlayerExpFirstLevel;
+    statPoints = 0;
+
+    spellKillCarry = 0;
+    mana = 0;
+
+    RefreshHealth();
+    health = maxHealth;
+}
+
 void Player::Update(float delta, const InputState &input, float lookYaw)
 {
     yaw = lookYaw;

@@ -39,6 +39,41 @@ void Spellbook::Give(Magic magic)
     owned[(int)magic] = 1;
 }
 
+bool Spellbook::IsOffered(Magic magic) const
+{
+    return InRange(magic) && (offered[(int)magic] != 0);
+}
+
+// See the note on Arsenal::RerollOffers - same idiom, over eight schools rather
+// than a couple of dozen weapons.
+void Spellbook::RerollOffers(int count)
+{
+    for (int i = 0; i < (int)Magic::Count; ++i) offered[i] = 0;
+
+    int unowned = 0;
+    for (int i = 0; i < (int)Magic::Count; ++i) { if (owned[i] == 0) unowned++; }
+
+    if (unowned <= 0) return;
+
+    int wanted = count;
+    if (wanted > unowned) wanted = unowned;
+
+    int placed = 0;
+    int guard = 0;
+
+    while ((placed < wanted) && (guard < 1000))
+    {
+        guard++;
+
+        const int pick = GetRandomValue(0, (int)Magic::Count - 1);
+
+        if ((owned[pick] != 0) || (offered[pick] != 0)) continue;
+
+        offered[pick] = 1;
+        placed++;
+    }
+}
+
 int Spellbook::Empower(Magic magic) const
 {
     if (!InRange(magic)) return 0;

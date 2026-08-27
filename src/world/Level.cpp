@@ -1059,6 +1059,24 @@ bool Level::PropBlocksAt(Vector3 point, float radius) const
     return false;
 }
 
+Vector3 Level::FindOpenSpotIn(const Room &room, float radius) const
+{
+    for (int attempt = 0; attempt < 24; ++attempt)
+    {
+        const int cx = room.x + GetRandomValue(0, room.w - 1);
+        const int cz = room.z + GetRandomValue(0, room.d - 1);
+
+        const Vector3 at = map.CellCenter(cx, cz);
+
+        if (map.SolidAtWorld(at.x, at.z)) continue;
+        if (PropBlocksAt(at, radius)) continue;
+
+        return at;
+    }
+
+    return map.CellCenter(room.CenterX(), room.CenterZ());
+}
+
 void Level::Unload()
 {
     // The box is the one thing here the AssetManager does not own

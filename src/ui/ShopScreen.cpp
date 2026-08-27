@@ -1,6 +1,7 @@
 #include "ui/ShopScreen.h"
 
 #include "combat/Magic.h"
+#include "combat/Weapon.h"
 #include "entities/Player.h"
 #include "progress/Arsenal.h"
 #include "progress/Spellbook.h"
@@ -138,7 +139,17 @@ void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
 
                     if (owns != (pass == 1)) continue;
 
+                    // Limited stock: an unowned weapon the counter is not currently
+                    // selling simply is not in the list this floor. An owned one is
+                    // never gated by this - see the note on Arsenal::IsOffered.
+                    if (!owns && !arsenal.IsOffered(i)) continue;
+
                     Row row;
+
+                    // The tags travel on every row regardless of deal, so a
+                    // weapon reads as "1H  CAST" whether it is being sold,
+                    // forged, or already maxed out.
+                    const std::string tagText = WeaponTagsText(arsenal.TagsAt(i));
 
                     row.name = arsenal.NameAt(i);
                     row.id = i;
@@ -148,7 +159,7 @@ void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
                     {
                         row.deal = Deal::Buy;
                         row.price = arsenal.Price(i);
-                        row.detail = "not owned";
+                        row.detail = tagText.empty() ? "not owned" : ("not owned    " + tagText);
                         row.enabled = purse.CanAfford(Currency::Coins, row.price);
                         row.note = row.enabled ? "" : "not enough coins";
                     }
@@ -156,20 +167,20 @@ void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
                     {
                         row.deal = Deal::Upgrade;
                         row.price = arsenal.ForgePrice(i);
-                        row.detail = TextFormat("forged %i / %i    +%.0f%% damage, +%i arms",
+                        row.detail = TextFormat("forged %i / %i    +%.0f%% damage, +%i arms    %s",
                                                 arsenal.Forge(i), WeaponForgeMax,
                                                 (arsenal.DamageMult(i) - 1.0f)*100.0f,
-                                                arsenal.Forge(i)*WeaponForgeArms);
+                                                arsenal.Forge(i)*WeaponForgeArms, tagText.c_str());
                         row.enabled = purse.CanAfford(Currency::Coins, row.price);
                         row.note = row.enabled ? "" : "not enough coins";
                     }
                     else
                     {
                         row.deal = Deal::None;
-                        row.detail = TextFormat("forged %i / %i    +%.0f%% damage, +%i arms",
+                        row.detail = TextFormat("forged %i / %i    +%.0f%% damage, +%i arms    %s",
                                                 WeaponForgeMax, WeaponForgeMax,
                                                 (arsenal.DamageMult(i) - 1.0f)*100.0f,
-                                                arsenal.Forge(i)*WeaponForgeArms);
+                                                arsenal.Forge(i)*WeaponForgeArms, tagText.c_str());
                         row.note = "fully forged";
                     }
 
@@ -193,6 +204,9 @@ void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
             {
                 const Magic magic = (Magic)i;
                 const MagicDef &def = MagicAt(magic);
+
+                // Limited stock - see the note on the merchant's loop above.
+                if (!spells.Owns(magic) && !spells.IsOffered(magic)) continue;
 
                 Row row;
 
@@ -266,6 +280,10 @@ void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
             for (int i = 0; i < TraitCount(); ++i)
             {
                 const TraitDef &def = TraitAt(i);
+
+                // Limited stock - see the note on the merchant's loop above. RESPEC
+                // above is never gated by this; it is not a table row.
+                if (!traits.Owns(i) && !traits.IsOffered(i)) continue;
 
                 Row row;
 
@@ -468,9 +486,9 @@ void ShopScreen::Draw(const Player &player, const Arsenal &arsenal, const Spellb
         // page uses. It is a thing to find a row by rather than to read.
         DrawRectangleRec({ box.x, box.y, 4.0f*ls, box.height }, row.tint);
 
-        UiLabel(row.name, box.x + (RowPad + 8.0f)*ls, box.y + 8.0f*ls, RowSize*ls, UiInk);
+        UiLabel(row.name.c_str(), box.x + (RowPad + 8.0f)*ls, box.y + 8.0f*ls, RowSize*ls, UiInk);
 
-        UiLabel(row.detail, box.x + (RowPad + 8.0f)*ls,
+        UiLabel(row.detail.c_str(), box.x + (RowPad + 8.0f)*ls,
                 box.y + (8.0f + RowSize + 3.0f)*ls, NoteSize*ls, UiDim);
 
         const Rectangle button = { box.x + box.width - (ButtonW + RowPad)*ls,
@@ -482,7 +500,7 @@ void ShopScreen::Draw(const Player &player, const Arsenal &arsenal, const Spellb
             // Nothing left to do with this one. The note is drawn where the button
             // would be, so the list keeps its shape rather than growing a ragged
             // right edge as things are bought.
-            UiLabelRight(row.note, button.x + button.width,
+            UiLabelRight(row.note.c_str(), button.x + button.width,
                          button.y + (button.height - NoteSize*ls)*0.5f, NoteSize*ls, UiOff);
 
             continue;
@@ -498,14 +516,14 @@ void ShopScreen::Draw(const Player &player, const Arsenal &arsenal, const Spellb
 
         // Why it is refused, beside the button rather than instead of it. A greyed
         // button with no reason next to it is a rule the player has to guess.
-        if (!row.enabled && (row.note[0] != '\0'))
+        if (!row.enabled && !row.note.empty())
         {
-            UiLabelRight(row.note, button.x - 10.0f*ls,
+            UiLabelRight(row.note.c_str(), button.x - 10.0f*ls,
                          button.y + (button.height - NoteSize*ls)*0.5f, NoteSize*ls, UiOff);
         }
-        else if (row.enabled && (row.note[0] != '\0'))
+        else if (row.enabled && !row.note.empty())
         {
-            UiLabelRight(row.note, button.x - 10.0f*ls,
+            UiLabelRight(row.note.c_str(), button.x - 10.0f*ls,
                          button.y + (button.height - NoteSize*ls)*0.5f, NoteSize*ls, UiDim);
         }
     }

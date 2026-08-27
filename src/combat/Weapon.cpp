@@ -110,6 +110,47 @@ namespace
 
         return nullptr;
     }
+
+    //------------------------------------------------------------------------------
+    // Which weapons take both hands.
+    //
+    // Explicit names rather than a derived rule, matched the same way
+    // FindOverride matches its prefixes - there is no property of a weapon's
+    // damage or reach that reliably says "two-handed", and this pack's own answer
+    // (the greatsword, the halberd, the spear, both staves) is short enough to
+    // just write down.
+    //------------------------------------------------------------------------------
+    bool IsTwoHanded(const std::string &name)
+    {
+        constexpr const char *TwoHanded[] = { "halberd", "spear_", "sword_E", "staff_" };
+
+        for (const char *prefix : TwoHanded)
+        {
+            if (name.compare(0, std::string(prefix).size(), prefix) == 0) return true;
+        }
+
+        return false;
+    }
+}
+
+std::string WeaponTagsText(unsigned tags)
+{
+    std::string out;
+
+    auto append = [&](const char *word)
+    {
+        if (!out.empty()) out += "  ";
+        out += word;
+    };
+
+    if (tags & TagOneHanded) append("1H");
+    if (tags & TagTwoHanded) append("2H");
+    if (tags & TagCasting)   append("CAST");
+    if (tags & TagRanged)    append("RANGED");
+    if (tags & TagThrown)    append("THROWN");
+    if (tags & TagBlocking)  append("BLOCK");
+
+    return out;
 }
 
 WeaponStats StatsFor(const std::string &name, AttackStyle style, float modelHeight)
@@ -142,6 +183,7 @@ WeaponStats StatsFor(const std::string &name, AttackStyle style, float modelHeig
             stats.damage = Config::CastDamage;
             stats.projectileSpeed = Config::CastSpeed;
             stats.releaseAt = Config::CastReleaseAt;
+            stats.tags |= TagCasting | TagRanged;
             break;
 
         case AttackStyle::Throw:
@@ -149,12 +191,22 @@ WeaponStats StatsFor(const std::string &name, AttackStyle style, float modelHeig
             stats.damage = Config::ThrowDamage;
             stats.projectileSpeed = Config::ThrowSpeed;
             stats.releaseAt = Config::ThrowReleaseAt;
+            stats.tags |= TagThrown | TagRanged;
+            break;
+
+        case AttackStyle::Block:
+            stats.damage = Config::SwingDamage;
+            stats.tags |= TagBlocking;
             break;
 
         default:
             stats.damage = Config::SwingDamage;
             break;
     }
+
+    // One-handed unless the pack's own two-handed weapons say otherwise - see the
+    // note on IsTwoHanded.
+    stats.tags |= IsTwoHanded(name) ? TagTwoHanded : TagOneHanded;
 
     const StatOverride *tweak = FindOverride(name);
     if (tweak != nullptr)

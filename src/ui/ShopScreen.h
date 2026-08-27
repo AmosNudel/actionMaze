@@ -3,6 +3,7 @@
 #include "raylib.h"
 #include "world/Npc.h"
 
+#include <string>
 #include <vector>
 
 class Player;
@@ -32,12 +33,14 @@ class TraitLoadout;
 // is what keeps this a counter: the player buys a sword here and decides whether it
 // beats the one they are holding on the screen that shows them both.
 //
-// --- No rolled stock -----------------------------------------------------------------
-// The mobile game deals each vendor three random offers per area. This does not: it
-// lists everything the vendor has, and the list is short enough to read. Rolled stock
-// makes sense when the table is a hundred rows and a run is five areas; here it would
-// only mean a player who wants a specific weapon has to descend until it appears,
-// which is a slot machine rather than a decision.
+// --- Limited stock -------------------------------------------------------------------
+// Unlike an early version of this counter, stock IS rolled: what is UNOWNED is
+// limited to a small offered subset that rerolls every floor (see
+// Arsenal::RerollOffers and its neighbours on Spellbook and TraitLoadout), so a
+// vendor is worth checking again on the way to the next one rather than a list the
+// player has already read in full. Nothing OWNED is ever gated by it - an owned
+// weapon's Upgrade row and a worn trait's Sell row show every time regardless of
+// what this floor happens to be offering.
 //----------------------------------------------------------------------------------
 class ShopScreen
 {
@@ -74,11 +77,23 @@ private:
     //------------------------------------------------------------------------------
     enum class Deal { None, Buy, Upgrade, Sell, Respec };
 
+    //--------------------------------------------------------------------------
+    // Owned strings, not pointers into raylib's TextFormat ring.
+    //
+    // TextFormat's buffer is a hard-capped ring of 4 (MAX_TEXTFORMAT_BUFFERS in
+    // raylib's rcore.c), and BuildRows calls it once or twice per row for as many
+    // as nineteen weapons or eight schools in one pass. A `const char *` alias
+    // into that ring is only good until the FIFTH call after it was made, so row
+    // 1's pointer was already pointing at row 5's text by the time this list had
+    // finished building - which is exactly the "wrong string next to the row"
+    // bug this was rewritten to fix. std::string copies the text out immediately,
+    // so each row owns its own.
+    //--------------------------------------------------------------------------
     struct Row
     {
-        const char *name = "";
-        const char *detail = "";        // What it does, or what the next level buys
-        const char *note = "";          // Owned / forged / the reason it is refused
+        std::string name;
+        std::string detail;             // What it does, or what the next level buys
+        std::string note;               // Owned / forged / the reason it is refused
 
         Color tint = WHITE;
 

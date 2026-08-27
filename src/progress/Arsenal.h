@@ -60,6 +60,11 @@ struct WeaponListing
     const char *name = "";
     int damage = 0;
     float reach = 0.0f;
+
+    // From WeaponStats::tags (combat/Weapon.h) - what KIND of weapon this is, so
+    // the shop and the arsenal can answer "is there a castable one" without
+    // reaching back into the view model that only lives in Game.
+    unsigned tags = 0;
 };
 
 class Arsenal
@@ -85,6 +90,40 @@ public:
 
     bool Owns(int index) const;
     void Give(int index);
+
+    //------------------------------------------------------------------------------
+    // Limited stock: which UNOWNED weapons the merchant is actually selling this
+    // floor.
+    //
+    // An owned weapon needs no offer - it shows as Upgrade regardless, and putting
+    // it in the offered set as well would double-count it for no reason. Rerolled
+    // once per floor (see Game::StartNewRun / Game::Descend), so a weapon the
+    // player wants but was not offered is a reason to come back down a floor and
+    // check the counter again, rather than a permanent lockout.
+    //------------------------------------------------------------------------------
+    bool IsOffered(int index) const;
+
+    // What kind of weapon this is - see WeaponListing::tags / combat/Weapon.h's
+    // WeaponTag.
+    unsigned TagsAt(int index) const;
+
+    // The weapon's own table figures, for the Inventory tab - see CharacterSheet.
+    // Not used by combat, which reads WeaponStats fresh every frame through
+    // Game::RefreshLoadout; these are a copy for display only.
+    int DamageAt(int index) const;
+    float ReachAt(int index) const;
+
+    //------------------------------------------------------------------------------
+    // Clears every offer, then marks up to `count` unowned weapons offered at
+    // random. Fewer than `count` unowned weapons simply offers all of them.
+    //
+    // `guaranteeTag`, when non-zero, is offered FIRST: one random unowned weapon
+    // carrying every bit in it (if one exists) is placed before the rest of the
+    // count is filled at random, so a floor can promise "there is always a
+    // castable weapon here" without that promise being a coin flip against
+    // `count` random picks.
+    //------------------------------------------------------------------------------
+    void RerollOffers(int count, unsigned guaranteeTag = 0);
 
     int Forge(int index) const;
     bool CanForge(int index) const;
@@ -123,7 +162,11 @@ private:
     // per weapon because two of the three are written by the shop and read by the
     // wheel, and the third never changes after Reset.
     std::vector<unsigned char> owned;
+    std::vector<unsigned char> offered;
     std::vector<unsigned char> forge;
     std::vector<int> prices;
     std::vector<std::string> names;
+    std::vector<unsigned> tags;
+    std::vector<int> damages;
+    std::vector<float> reaches;
 };

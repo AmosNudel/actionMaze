@@ -127,6 +127,11 @@ public:
     const std::vector<Enemy> &All() const { return enemies; }
     int AliveCount() const;
 
+    // Which rooms this floor's camps actually claimed, -1s included. For anything
+    // that has to know a room is already spoken for without knowing the camp table
+    // itself - see Game's "no room left with nothing in it" pass.
+    const std::vector<int> &CampRooms() const { return campRooms; }
+
 private:
     //------------------------------------------------------------------------------
     // One of these per row of Config::EnemyTypes, not per enemy. The shared
@@ -224,8 +229,15 @@ private:
     // The camp table still says what a camp is made of - its garrison, its spread,
     // which archetypes it can send - because that is design. What it can no longer
     // say is WHERE, because a generated map has no fixed cell to author against.
+    //
+    // `avoid` is the vendor rooms for this floor - a shop is meant to be somewhere
+    // safe to stand, and a camp claiming the same room as one puts a fight at the
+    // counter. Threaded in as a plain list rather than read off a Level, because
+    // this is called once per camp before there is anything else it needs the
+    // level for.
     //------------------------------------------------------------------------------
-    int ChooseCampRoom(int campIndex, const std::vector<Room> &rooms) const;
+    int ChooseCampRoom(int campIndex, const std::vector<Room> &rooms,
+                       const std::vector<int> &avoid) const;
 
     // Living bodies belonging to a camp. A corpse does not hold a slot: the
     // replacement should be on its way while the body is still falling over.
@@ -257,6 +269,12 @@ private:
     // One raider, one frame - see the note on the definition. Nothing in the
     // ordinary think applies to it, so it does not run any of it.
     void UpdateRaider(Enemy &enemy, float delta, Level &level);
+
+    // FLAME's one jump: hands `from`'s burn to the nearest other living enemy
+    // within Config::FlameSpreadRadius that is not already burning, or does
+    // nothing if there is none. Called once, the moment `from`'s own burn expires
+    // - see the note on the call site.
+    void SpreadBurnFrom(Enemy &from);
 
     //------------------------------------------------------------------------------
     // Would channelling be worth it right now?

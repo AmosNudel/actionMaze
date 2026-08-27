@@ -1,5 +1,6 @@
 #include "progress/Arsenal.h"
 
+#include "core/Config.h"
 #include "raylib.h"
 
 #include <cctype>
@@ -24,7 +25,10 @@ namespace
         const int fromDamage = weapon.damage*7;
         const int fromReach = (int)(weapon.reach*22.0f);
 
-        const int price = 40 + fromDamage + fromReach;
+        // Config::WeaponPriceScale is the one knob for "the merchant costs too
+        // much" rather than reworking the three constants above by feel - see the
+        // note on it in Config.h.
+        const int price = (int)((40 + fromDamage + fromReach)*Config::WeaponPriceScale);
 
         // Rounded to something a player reads as a price rather than as a
         // measurement. 137 coins and 140 coins buy the same sword; only one of them
@@ -68,14 +72,21 @@ void Arsenal::Reset(const std::vector<WeaponListing> &weapons, const char *start
     }
 
     owned.assign((size_t)capped, 0);
+    offered.assign((size_t)capped, 0);
     forge.assign((size_t)capped, 0);
     prices.assign((size_t)capped, 0);
     names.assign((size_t)capped, std::string());
+    tags.assign((size_t)capped, 0u);
+    damages.assign((size_t)capped, 0);
+    reaches.assign((size_t)capped, 0.0f);
 
     for (int i = 0; i < capped; ++i)
     {
         prices[(size_t)i] = PriceFor(weapons[(size_t)i]);
         names[(size_t)i] = (weapons[(size_t)i].name != nullptr) ? weapons[(size_t)i].name : "";
+        tags[(size_t)i] = weapons[(size_t)i].tags;
+        damages[(size_t)i] = weapons[(size_t)i].damage;
+        reaches[(size_t)i] = weapons[(size_t)i].reach;
     }
 
     if (capped <= 0) return;
@@ -125,6 +136,102 @@ void Arsenal::Give(int index)
     if ((index < 0) || (index >= Count())) return;
 
     owned[(size_t)index] = 1;
+}
+
+bool Arsenal::IsOffered(int index) const
+{
+    if ((index < 0) || (index >= Count())) return false;
+
+    return offered[(size_t)index] != 0;
+}
+
+unsigned Arsenal::TagsAt(int index) const
+{
+    if ((index < 0) || (index >= Count())) return 0;
+
+    return tags[(size_t)index];
+}
+
+int Arsenal::DamageAt(int index) const
+{
+    if ((index < 0) || (index >= Count())) return 0;
+
+    return damages[(size_t)index];
+}
+
+float Arsenal::ReachAt(int index) const
+{
+    if ((index < 0) || (index >= Count())) return 0.0f;
+
+    return reaches[(size_t)index];
+}
+
+//----------------------------------------------------------------------------------
+// A fresh floor, a fresh handful of unowned weapons on the counter.
+//
+// Picked by repeated rejection rather than a shuffled index list: the candidate
+// pool is small (a couple of dozen weapons at most) and already owned weapons need
+// no slot of their own, so rerolling a pick that lands on one already offered or
+// already owned is cheaper than building and shuffling a whole list for a floor
+// that only wants three or four entries from it.
+//----------------------------------------------------------------------------------
+void Arsenal::RerollOffers(int count, unsigned guaranteeTag)
+{
+    offered.assign(offered.size(), 0);
+
+    int unowned = 0;
+    for (int i = 0; i < Count(); ++i) { if (!Owns(i)) unowned++; }
+
+    if (unowned <= 0) return;
+
+    int wanted = count;
+    if (wanted > unowned) wanted = unowned;
+
+    int placed = 0;
+
+    //------------------------------------------------------------------------------
+    // The guarantee, spent first.
+    //
+    // Collected into a candidate list rather than rolled-and-rejected like the
+    // ordinary fill below, because a tag as specific as "castable" can be rare
+    // enough in a short weapon list that rejection sampling would spin for a
+    // while before giving up - counting the candidates once and picking among
+    // them is the same guarantee without the spin.
+    //------------------------------------------------------------------------------
+    if ((guaranteeTag != 0) && (placed < wanted))
+    {
+        std::vector<int> candidates;
+
+        for (int i = 0; i < Count(); ++i)
+        {
+            if (Owns(i)) continue;
+            if ((tags[(size_t)i] & guaranteeTag) != guaranteeTag) continue;
+
+            candidates.push_back(i);
+        }
+
+        if (!candidates.empty())
+        {
+            const int pick = candidates[(size_t)GetRandomValue(0, (int)candidates.size() - 1)];
+
+            offered[(size_t)pick] = 1;
+            placed++;
+        }
+    }
+
+    int guard = 0;      // Bails out rather than spinning forever on a bad count
+
+    while ((placed < wanted) && (guard < 1000))
+    {
+        guard++;
+
+        const int pick = GetRandomValue(0, Count() - 1);
+
+        if (Owns(pick) || IsOffered(pick)) continue;
+
+        offered[(size_t)pick] = 1;
+        placed++;
+    }
 }
 
 int Arsenal::Forge(int index) const

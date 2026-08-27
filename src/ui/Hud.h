@@ -106,17 +106,6 @@ private:
                         const Spellbook &spells) const;
 
     //------------------------------------------------------------------------------
-    // What the run has earned, bottom right.
-    //
-    // Three small numbers rather than a panel. The purse is not read under pressure -
-    // the only time it matters is standing at a counter, and the counter prints the
-    // one figure it accepts - so this is a reminder that the currencies exist and
-    // roughly where they stand, not a readout to plan against. The character page is
-    // where the three are actually compared.
-    //------------------------------------------------------------------------------
-    void DrawPurse(const Player &player) const;
-
-    //------------------------------------------------------------------------------
     // "E to trade", when the player is standing at a vendor.
     //
     // Near the crosshair rather than in a corner, because it is the one line on this

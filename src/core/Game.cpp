@@ -1,3 +1,4 @@
+
 #include "core/Game.h"
 
 #include "combat/Attack.h"
@@ -63,20 +64,11 @@ void Game::Init()
     // a panel fitted before the load and drawn after it is a panel that overflows.
     LoadUiFont();
 
-    level.Load(assets);
     sky.Load(assets, Config::SkyCubemap);
 
-    player.Spawn(level.SpawnPoint());
-    camera.SnapTo(player.Position());
-
     viewModel.Load(assets);
-
     enemies.Load(assets);
-    enemies.PopulateCamps(level, player.level);
-
     hud.Load(assets);
-    hud.ResetMap(level);
-
     projectiles.Load(assets);
     vfx.Load(assets);
     portal.Load(assets);
@@ -84,19 +76,61 @@ void Game::Init()
     vendors.Load(assets);
     loot.Load(assets);
 
-    // After the view model, because the arsenal is sized to its weapon list
+    // Everything above is a once-ever asset load with no level or character to be
+    // ready yet. Everything a RUN needs - the level itself, the starting kit, the
+    // player placed on it - is StartNewRun's job, and Restart calls exactly the
+    // same function.
+    StartNewRun();
+}
+
+//----------------------------------------------------------------------------------
+// A whole fresh run: a new character at a fresh depth 1.
+//
+// What Init calls once at startup and what Restart, on the run-end screen, calls
+// again - the two ARE the same operation, and keeping them as one function is what
+// stops them drifting apart the next time a system is added here.
+//
+// Unlike Descend, this also throws away the character (Player::ResetCharacter) and
+// the run's progression (ResetProgression): a floor change is a place changing
+// under the same character, but a new run is a new character. Level::ResetDepth is
+// the one call that makes that safe to do more than once - Level::Depth otherwise
+// only ever counts up, because every OTHER caller (F6, the portal) wants exactly
+// that.
+//----------------------------------------------------------------------------------
+void Game::StartNewRun()
+{
+    player.ResetCharacter();
+
+    // After ResetCharacter, since the arsenal is sized to the view model's weapon
+    // list but the starting kit it hands back has to land on a level 1 character
     ResetProgression();
 
-    // The first floor is depth 1 and has its own pool, the same as every floor
-    // after it. Done here rather than in Descend so that the opening floor and the
-    // ones reached through a portal are set up by exactly the same numbers.
+    level.ResetDepth();
+    level.Load(assets);
+
+    player.Spawn(level.SpawnPoint());
+    camera.SnapTo(player.Position());
+
+    projectiles.Clear();
+    vfx.Clear();
+    loot.Clear();
+
     ResetChaos(chaos, level.Depth());
+    portal.Reset();
     portal.PlaceAt(level.PortalPoint());
     events.Place(level, level.Depth());
 
     // After the events, because the two share the pool of rooms and the map chose
     // the event rooms first
     vendors.Place(level);
+    RerollVendorStock();
+
+    enemies.PopulateCamps(level, player.level);
+    SeedRoomLoot();
+
+    hud.ResetMap(level);
+
+    runPhase = RunPhase::Playing;
 
     TraceLog(LOG_INFO, "RUN: depth %i, %i chaos to quell, ranks about %i, %i events, %i vendors",
              level.Depth(), chaos.max, RankCentreForDepth(level.Depth()),
@@ -132,6 +166,7 @@ void Game::ResetProgression()
         entry.name = viewModel.NameAt(i);
         entry.damage = table.damage;
         entry.reach = table.reach;
+        entry.tags = table.tags;
 
         listing.push_back(entry);
     }
@@ -157,6 +192,98 @@ void Game::ResetProgression()
     viewModel.SetSlot(Hand::Left, -1);
 
     magic = (Magic)Config::StartingMagic;
+}
+
+//----------------------------------------------------------------------------------
+// A fresh, small handful of unowned offers at every counter.
+//
+// One call rather than three scattered across StartNewRun and Descend, so a
+// fourth vendor added later needs one new line here instead of one in each of two
+// call sites that would otherwise have every reason to fall out of step.
+//----------------------------------------------------------------------------------
+void Game::RerollVendorStock()
+{
+    // The first floor guarantees a castable weapon among what is offered - a run
+    // that wants to try a school from the first room down should not have to
+    // hope the merchant's random five happened to include one. Every floor after
+    // it is an ordinary random reroll.
+    const unsigned guarantee = (level.Depth() == 1) ? (unsigned)TagCasting : 0u;
+
+    arsenal.RerollOffers(Config::MerchantStockPerFloor, guarantee);
+    spells.RerollOffers(Config::MysticStockPerFloor);
+    traits.RerollOffers(Config::CaptainStockPerFloor);
+}
+
+//----------------------------------------------------------------------------------
+// No room left with nothing to do in it.
+//
+// Several room kinds are not `garrisoned` (Storage, Kitchen, Vault, Library - see
+// world/RoomKind.h) so that a camp cannot claim them, and most rooms hold neither a
+// vendor nor an event either - there are only ever a handful of each on a floor.
+// Without this, a room that rolled none of the three is furniture and nothing
+// else: a box the player walks through once and never has a reason to enter again.
+//
+// Run once every floor, after camps, vendors and events have all placed
+// themselves, since this is the one pass that can actually see what is left
+// unclaimed. Gems rather than coins, because coins have nowhere to be dropped AS -
+// see the note on Loot.h for why this system carries only the two rare currencies.
+//----------------------------------------------------------------------------------
+void Game::SeedRoomLoot()
+{
+    const std::vector<Room> &rooms = level.Grid().Rooms();
+
+    const std::vector<int> &vendorRooms = level.Grid().VendorRooms();
+    const std::vector<int> &eventRooms = level.Grid().EventRooms();
+    const std::vector<int> &campRooms = enemies.CampRooms();
+
+    auto listed = [](const std::vector<int> &list, int room)
+    {
+        for (int i : list) { if (i == room) return true; }
+
+        return false;
+    };
+
+    for (int i = 0; i < (int)rooms.size(); ++i)
+    {
+        const Room &room = rooms[(size_t)i];
+
+        // Kept clear on purpose - see RoomKind.h. Neither is ever garrisoned,
+        // vendored or made an event either, so both would otherwise get a drop
+        // every floor for no reason.
+        if ((room.kind == RoomKind::Entrance) || (room.kind == RoomKind::Portal)) continue;
+
+        if (listed(vendorRooms, i) || listed(eventRooms, i) || listed(campRooms, i)) continue;
+
+        // A little more somewhere already worth a special trip. Both figures are
+        // small - this is a consolation for an empty room, not a reason to skip
+        // the rooms that hold something else.
+        const bool special = (room.kind == RoomKind::Vault) || (room.kind == RoomKind::Library);
+
+        const Vector3 at = level.FindOpenSpotIn(room, 0.5f);
+
+        loot.Spawn(Currency::Gems, special ? 2 : 1, at);
+
+        //--------------------------------------------------------------------------
+        // The Vault ADDITIONALLY gets a scatter of coin piles, each its own drop at
+        // its own spot - see Config::VaultCoinPiles* - so it reads as a chest
+        // someone tipped over rather than as the one-gem consolation every other
+        // empty room gets. Library keeps just the gem: it is a room of books, not
+        // a room of money.
+        //--------------------------------------------------------------------------
+        if (room.kind == RoomKind::Vault)
+        {
+            const int piles = GetRandomValue(Config::VaultCoinPilesMin, Config::VaultCoinPilesMax);
+
+            for (int p = 0; p < piles; ++p)
+            {
+                const Vector3 pileAt = level.FindOpenSpotIn(room, 0.4f);
+                const int amount = GetRandomValue(Config::VaultCoinAmountMin,
+                                                  Config::VaultCoinAmountMax);
+
+                loot.Spawn(Currency::Coins, amount, pileAt);
+            }
+        }
+    }
 }
 
 // The view model knows which weapon is in each hand; combat needs to know what
@@ -252,6 +379,27 @@ Vector3 Game::AimDirectionFrom(Vector3 muzzle) const
 }
 
 //----------------------------------------------------------------------------------
+// What finishing a floor means: one deeper, or the end of the run.
+//
+// Called from exactly the two places a floor can be finished - the portal's dwell
+// completing, and the pause menu's Descend shortcut - so a shortcut past the walk
+// cannot also be a shortcut past the ending on Config::VictoryDepth.
+//----------------------------------------------------------------------------------
+void Game::AdvanceFloor()
+{
+    if (level.Depth() >= Config::VictoryDepth)
+    {
+        runPhase = RunPhase::Victorious;
+        runEnd.Open(true, level.Depth(), player.level);
+        FreeCursor(true);
+    }
+    else
+    {
+        Descend();
+    }
+}
+
+//----------------------------------------------------------------------------------
 // One floor down: throw this one away and build the next.
 //
 // Everything downstream of the map has to be rebuilt with it, and in this order:
@@ -294,12 +442,14 @@ void Game::Descend()
     // floor had, so nothing survives into a map where its room no longer exists.
     events.Place(level, level.Depth());
     vendors.Place(level);
+    RerollVendorStock();
 
     // PopulateCamps empties the enemy list itself, so the old garrison goes with
     // the old map. Tiered against the level the player is on NOW - Level::Load has
     // already counted this as one floor deeper, so the new garrison rolls its ranks
     // about a higher centre than the one that just died.
     enemies.PopulateCamps(level, player.level);
+    SeedRoomLoot();
 
     // Whatever the player had explored was a map of a dungeon that no longer exists
     hud.ResetMap(level);
@@ -384,7 +534,7 @@ bool Game::UpdateScreens()
         {
             case PauseMenu::Choice::Resume:    pause.Close(); break;
             case PauseMenu::Choice::Character: pause.Close(); sheet.Toggle(); break;
-            case PauseMenu::Choice::Descend:   pause.Close(); Descend(); break;
+            case PauseMenu::Choice::Descend:   pause.Close(); AdvanceFloor(); break;
 
             // The one place the game ends. Straight out - there is nothing to save
             // yet, and a confirmation on a menu entry that already says "to
@@ -395,7 +545,7 @@ bool Game::UpdateScreens()
         }
     }
 
-    if (sheet.IsOpen()) sheet.Update(player, traits);
+    if (sheet.IsOpen()) sheet.Update(player, arsenal, spells, traits);
     if (shop.IsOpen()) shop.Update(player, arsenal, spells, traits);
 
     // Both pages can change what the traits are granting - the sheet by equipping
@@ -441,9 +591,56 @@ void Game::Update(float delta)
 {
     input = InputState::Poll();
 
+    // The run is over. Nothing below this matters until Restart puts a fresh one
+    // in play - see UpdateRunEnd.
+    if (runPhase != RunPhase::Playing)
+    {
+        UpdateRunEnd();
+        return;
+    }
+
     if (UpdateScreens()) return;
 
     UpdateWorld(delta);
+
+    // Checked after the world has moved, so a blow that emptied the pool this very
+    // frame is what actually ends the run - not a frame behind it.
+    if (!player.IsAlive())
+    {
+        runPhase = RunPhase::Defeated;
+        runEnd.Open(false, level.Depth(), player.level);
+        FreeCursor(true);
+    }
+}
+
+//----------------------------------------------------------------------------------
+// The run-end page, while there is no run to update.
+//
+// The same shape as the pause/sheet/shop handling in UpdateScreens: read the
+// choice, act on it, hand the cursor back or take it, once. Kept separate rather
+// than folded into UpdateScreens because a run that has ended is not a pause - the
+// world underneath is not merely stopped, there is no floor state left worth
+// resuming into.
+//----------------------------------------------------------------------------------
+void Game::UpdateRunEnd()
+{
+    switch (runEnd.Update())
+    {
+        case RunEndScreen::Choice::Restart:
+            runEnd.Close();
+            StartNewRun();
+            break;
+
+        // Straight out, the same as the pause menu's Quit - there is nothing to
+        // save, and a confirmation on a choice already reached by dying or winning
+        // is a second question about the same decision.
+        case RunEndScreen::Choice::Quit:
+            quitting = true;
+            break;
+
+        default:
+            break;
+    }
 }
 
 void Game::UpdateWorld(float delta)
@@ -682,7 +879,13 @@ void Game::UpdateWorld(float delta)
             // Rolled as it leaves, not on impact. The shot carries a number rather
             // than a stat block, and one shot has to be one roll - a mote that
             // re-rolled every substep would crit eventually, always.
-            const bool crit = RollWeaponCrit(fighting, stats[h].critBonus);
+            //
+            // SPARK never rolls at all - its signature effect (see combat/Magic.cpp)
+            // is that every hit crits, which is what pays for arriving before the
+            // player can move: SKILL is still what decides how HARD it crits, only
+            // whether it does is taken out of the player's hands.
+            const bool crit = ((styles[h] == AttackStyle::Cast) && (magic == Magic::Spark))
+                            || RollWeaponCrit(fighting, stats[h].critBonus);
 
             projectiles.Spawn(muzzle, AimDirectionFrom(muzzle), speed,
                               ResolveDamage(raw, fighting, crit),
@@ -786,9 +989,11 @@ void Game::UpdateWorld(float delta)
 
     if (UpdateChaos(chaos, delta, inPortal))
     {
-        Descend();
+        AdvanceFloor();
 
-        // Everything below this read the floor that no longer exists
+        // Everything below this read the floor that no longer exists, or there is
+        // no floor at all any more - either way, nothing below this frame's return
+        // has anything left to act on
         return;
     }
 
@@ -868,7 +1073,12 @@ void Game::Draw()
         // opens, so it has to sit on top of the menu that opened it.
         pause.Draw(chaos.cleared);
         shop.Draw(player, arsenal, spells, traits);
-        sheet.Draw(player, traits);
+        sheet.Draw(player, arsenal, spells, traits);
+
+        // Over all of them: once a run has ended none of the pages above it are
+        // reachable any more (UpdateRunEnd shortcuts past UpdateScreens entirely),
+        // so this is the one page actually on top when it is up.
+        runEnd.Draw();
 
     EndDrawing();
 }

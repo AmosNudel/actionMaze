@@ -114,7 +114,6 @@ void Hud::Draw(const Player &player, const ViewModel &viewModel, const Level &le
 
     DrawLeftColumn(player, level, magic, spells);
     DrawProgress(player);
-    DrawPurse(player);
 
     DrawChaos(chaos, events);
     DrawEvent(events);
@@ -325,26 +324,6 @@ void Hud::DrawLeftColumn(const Player &player, const Level &level, Magic magic,
                 left + count*step + 16.0f*ui + UiTextWidth(named, label),
                 cy - label*0.5f, label, (player.mana >= cost) ? ManaFill : Dim);
     }
-}
-
-//----------------------------------------------------------------------------------
-// The purse, bottom right, above the run's own bar.
-//----------------------------------------------------------------------------------
-void Hud::DrawPurse(const Player &player) const
-{
-    const float ui = UiScale();
-
-    const float label = LabelSize*ui;
-    const float margin = Margin*2.0f*ui;
-
-    // Measured up from the exp bar rather than down from the bottom of the screen, so
-    // the two cannot end up on top of each other when the bar art is missing and the
-    // bars come out a different height.
-    const float y = GetScreenHeight() - BarPixels() - Margin*ui - label*2.0f - Gap*ui*2.0f;
-
-    UiLabelRight(TextFormat("%d coins    %d gems    %d contracts",
-                            player.purse.coins, player.purse.gems, player.purse.contracts),
-                 GetScreenWidth() - margin, y, label, Dim);
 }
 
 //----------------------------------------------------------------------------------

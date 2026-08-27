@@ -10,17 +10,21 @@ class AssetManager;
 //----------------------------------------------------------------------------------
 // The rare currencies, lying on the floor waiting to be walked over.
 //
-// --- Why only two of the three -------------------------------------------------------
-// Coins are NOT here. They credit straight to the purse the moment something dies,
-// with a number floating off the body, and that is deliberate: a physical coin per
-// kill would flood this pool the moment a swept blade took a whole pack, and the coins
-// the player walked past would be coins lost to a pool overflow rather than to a
-// decision.
+// --- Why an ordinary kill never drops a coin ------------------------------------------
+// A KILL still credits coins straight to the purse, with a number floating off the
+// body, rather than leaving one here: a physical coin per kill would flood this pool
+// the moment a swept blade took a whole pack, and the coins the player walked past
+// would be coins lost to a pool overflow rather than to a decision.
 //
 // Gems and contracts are physical for exactly the opposite reason. They are rare, and
 // a gem that appeared as a number among a dozen other numbers is a gem the player
 // never noticed earning. Making them something to walk to is what turns "an elite
 // dropped something" into a moment.
+//
+// Coins CAN still be dropped here, deliberately, from exactly one place:
+// Game::SeedRoomLoot scatters a few in a Vault to make it read as a treasure room
+// rather than a stat increment. That is a scripted, floor-bounded amount rather than
+// a per-kill rate, so the flood risk above never applies to it.
 //
 // --- The float is not physics ----------------------------------------------------------
 // A drop is pinned to the point it was left on and bobs above it forever. It never
@@ -28,11 +32,17 @@ class AssetManager;
 // concession to the world is a short pop outward as it appears, so three gems out of
 // one body land beside each other instead of inside each other.
 //
-// --- Placeholder art ---------------------------------------------------------------------
-// There is none. A drop is the shared glow billboard in its currency's colour, which
-// is the same object the motes and the beams are made of - so it already reads as
-// "something worth having" without a single new texture. A model later is one draw
-// call.
+// --- Real props, not a glow ----------------------------------------------------------
+// A drop is the dungeon pack's own coin (or, for a bigger amount, a coin STACK),
+// tinted by CurrencyColour - gold and untouched for coins, violet for gems, red for
+// contracts, because the pack ships no gem model at all and a coin says "money" in
+// any colour. Loaded the same way EventManager binds the relic: against the shared
+// lit shader and the one dungeon texture atlas, so a drop is lit like the room it
+// is lying in rather than looking pasted over it.
+//
+// Falls back to the glow billboard the motes and beams already use if the model is
+// missing - the same "missing is not an error" rule the enemy animations follow -
+// so a stripped-down asset folder still shows SOMETHING worth walking over.
 //----------------------------------------------------------------------------------
 struct LootDrop
 {
@@ -81,7 +91,18 @@ public:
 private:
     std::vector<LootDrop> drops;
 
-    Texture2D *glow = nullptr;      // Shared, owned by the AssetManager
+    Texture2D *glow = nullptr;      // Fallback only, if a coin model is missing
+
+    // The coin, and three stacks for bigger amounts - see ModelFor. Null for
+    // whichever the asset folder does not have; DrawDrop falls back to the glow
+    // billboard for that one drop rather than skipping it.
+    Model *coin = nullptr;
+    Model *stackSmall = nullptr;
+    Model *stackMedium = nullptr;
+    Model *stackLarge = nullptr;
+
+    // Which of the four models a drop this size draws as.
+    Model *ModelFor(int amount) const;
 };
 
 // The colour a currency's drop floats in, and what its number is printed in. Here

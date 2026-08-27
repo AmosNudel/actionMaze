@@ -45,6 +45,71 @@ namespace
     {
         return GetRandomValue(0, Config::EnemyTypeCount - 1);
     }
+
+    //------------------------------------------------------------------------------
+    // Which rooms a Seal scatters its runes across: the event's own room, plus up
+    // to two more nearby ones - nearest first, the same idiom Map::ChooseEventRooms
+    // already uses for spacing objectives apart.
+    //
+    // Eligible means big enough to search (Config::EventRoomArea, same bar an
+    // event room itself has to clear) and not already spoken for: not the
+    // Entrance or the Portal, not another event's room, not a vendor's. A rune in
+    // a vendor's room would put the storm's bolts there too, and a shop is
+    // supposed to be somewhere safe to stand.
+    //
+    // Confined to a handful of rooms rather than the whole floor on purpose - the
+    // objective should read as "the runes are spread through this WING of the
+    // dungeon", which the player can learn by walking it once, not as a scavenger
+    // hunt across a map they have not fully explored yet.
+    //------------------------------------------------------------------------------
+    void ChooseSealRooms(const Level &level, int ownRoom, std::vector<int> &out)
+    {
+        out.clear();
+        out.push_back(ownRoom);
+
+        const std::vector<Room> &rooms = level.Grid().Rooms();
+        const std::vector<int> &eventRooms = level.Grid().EventRooms();
+        const std::vector<int> &vendorRooms = level.Grid().VendorRooms();
+
+        if ((ownRoom < 0) || (ownRoom >= (int)rooms.size())) return;
+
+        const Room &home = rooms[(size_t)ownRoom];
+
+        constexpr int MaxExtra = 2;
+
+        for (int pick = 0; pick < MaxExtra; ++pick)
+        {
+            int best = -1;
+            int bestAway = -1;
+
+            for (int i = 0; i < (int)rooms.size(); ++i)
+            {
+                if (i == ownRoom) continue;
+
+                const Room &room = rooms[(size_t)i];
+
+                if ((room.kind == RoomKind::Entrance) || (room.kind == RoomKind::Portal)) continue;
+                if (room.Area() < Config::EventRoomArea) continue;
+
+                bool taken = false;
+
+                for (int r : out) { if (r == i) taken = true; }
+                for (int r : eventRooms) { if (r == i) taken = true; }
+                for (int r : vendorRooms) { if (r == i) taken = true; }
+
+                if (taken) continue;
+
+                const int away = std::abs(room.CenterX() - home.CenterX())
+                                + std::abs(room.CenterZ() - home.CenterZ());
+
+                if ((best < 0) || (away < bestAway)) { best = i; bestAway = away; }
+            }
+
+            if (best < 0) break;   // Nothing left the floor can offer
+
+            out.push_back(best);
+        }
+    }
 }
 
 const EventDef &EventAt(EventKind kind)
@@ -375,10 +440,24 @@ void EventManager::TryStart(Event &event, const Level &level, const Player &play
             event.runes.clear();
             event.bolts.clear();
 
+            //------------------------------------------------------------------
+            // Spread across a few rooms rather than one - see ChooseSealRooms.
+            // Runes are handed out round robin across whichever rooms it found,
+            // so a floor that could only offer one extra room still gets a
+            // reasonable split rather than piling everything into the first.
+            //------------------------------------------------------------------
+            std::vector<int> sealRooms;
+            ChooseSealRooms(level, event.room, sealRooms);
+
+            const std::vector<Room> &rooms = level.Grid().Rooms();
+
             for (int i = 0; i < Config::SealRunes; ++i)
             {
-                Vector3 spot{};
-                if (!FindSpotIn(level, event, 0.3f, spot)) continue;
+                const int roomIndex = sealRooms[(size_t)(i%(int)sealRooms.size())];
+
+                if ((roomIndex < 0) || (roomIndex >= (int)rooms.size())) continue;
+
+                const Vector3 spot = level.FindOpenSpotIn(rooms[(size_t)roomIndex], 0.3f);
 
                 SealRune rune;
                 // Waist height, so they are picked up by walking rather than by
@@ -602,13 +681,21 @@ void EventManager::UpdateDefend(Event &event, float delta, const Level &level, P
         const int id = enemies.SpawnEventEnemy(RollType(), at, depth, playerLevel,
                                                Config::EventRankBonus, event.tag);
 
-        for (Enemy &enemy : enemies.All())
-        {
-            if (enemy.id != id) continue;
+        // Most of the wave raids; the rest come for the player instead, through
+        // the same AI the floor's own population already fights with - see the
+        // note on Config::DefendRaiderFraction.
+        const bool raids = GetRandomValue(0, 999) < (int)(Config::DefendRaiderFraction*1000.0f);
 
-            enemy.raiding = true;
-            enemy.raidTarget = event.relicAt;
-            break;
+        if (raids)
+        {
+            for (Enemy &enemy : enemies.All())
+            {
+                if (enemy.id != id) continue;
+
+                enemy.raiding = true;
+                enemy.raidTarget = event.relicAt;
+                break;
+            }
         }
     }
 }
@@ -664,9 +751,13 @@ void EventManager::UpdateSeal(Event &event, float delta, Player &player, VfxMana
     //------------------------------------------------------------------------------
     // The storm.
     //
-    // Aimed at where the player IS, scattered a little. Aiming exactly at them would
-    // be unavoidable and aiming at random would be ignorable; a volley that lands
-    // around them is a reason to keep moving, which is the whole point of the event.
+    // Aimed at a still-uncollected RUNE, scattered a little, rather than at the
+    // player. The runes are what the storm is guarding now that they are spread
+    // across several rooms - a volley that chased the player's feet would strike
+    // wherever they happened to be standing and say nothing about where the
+    // objective actually is. This still asks for the same thing the event
+    // always has, which is moving under pressure: standing next to a rune to
+    // wait out its own bolts is not free.
     //------------------------------------------------------------------------------
     event.boltTimer -= delta;
 
@@ -674,15 +765,38 @@ void EventManager::UpdateSeal(Event &event, float delta, Player &player, VfxMana
     {
         event.boltTimer = Config::SealBoltGap;
 
-        for (int i = 0; i < Config::SealBoltsPerVolley; ++i)
+        int live = -1;
+        int liveCount = 0;
+
+        for (int r = 0; r < (int)event.runes.size(); ++r) { if (!event.runes[r].taken) liveCount++; }
+
+        if (liveCount > 0)
         {
-            const float angle = GetRandomValue(0, 359)*DEG2RAD;
-            const float away = GetRandomValue(0, 300)/100.0f;
+            int pick = GetRandomValue(0, liveCount - 1);
 
-            SealBolt bolt;
-            bolt.at = { feet.x + cosf(angle)*away, event.at.y, feet.z + sinf(angle)*away };
+            for (int r = 0; r < (int)event.runes.size(); ++r)
+            {
+                if (event.runes[r].taken) continue;
+                if (pick == 0) { live = r; break; }
 
-            event.bolts.push_back(bolt);
+                pick--;
+            }
+        }
+
+        if (live >= 0)
+        {
+            const Vector3 target = event.runes[(size_t)live].at;
+
+            for (int i = 0; i < Config::SealBoltsPerVolley; ++i)
+            {
+                const float angle = GetRandomValue(0, 359)*DEG2RAD;
+                const float away = GetRandomValue(0, 300)/100.0f;
+
+                SealBolt bolt;
+                bolt.at = { target.x + cosf(angle)*away, event.at.y, target.z + sinf(angle)*away };
+
+                event.bolts.push_back(bolt);
+            }
         }
     }
 
@@ -694,8 +808,18 @@ void EventManager::UpdateSeal(Event &event, float delta, Player &player, VfxMana
 
         bolt.struck = true;
 
+        //------------------------------------------------------------------------
+        // The strike. Bigger than a straight read of the radius would suggest and
+        // layered with a second, wider burst underneath it - the sprite sheet
+        // alone at its old size was a fast, small, white flash that was easy to
+        // miss against a lit dungeon, which is not what "the ceiling coming down"
+        // should read as.
+        //------------------------------------------------------------------------------
         vfx.Spawn(VfxKind::Lightning, { bolt.at.x, bolt.at.y + 1.0f, bolt.at.z },
-                  Config::SealBoltRadius*2.0f, WHITE);
+                  Config::SealBoltRadius*3.2f, WHITE);
+
+        vfx.Spawn(VfxKind::Splash, { bolt.at.x, bolt.at.y + 0.05f, bolt.at.z },
+                  Config::SealBoltRadius*2.4f, EventAt(EventKind::Seal).colour);
 
         const float dx = bolt.at.x - player.Position().x;
         const float dz = bolt.at.z - player.Position().z;

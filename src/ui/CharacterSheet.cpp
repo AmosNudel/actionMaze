@@ -1,7 +1,11 @@
 #include "ui/CharacterSheet.h"
 
+#include "combat/Magic.h"
+#include "combat/Weapon.h"
 #include "core/Config.h"
 #include "entities/Player.h"
+#include "progress/Arsenal.h"
+#include "progress/Spellbook.h"
 #include "ui/UiText.h"
 #include "ui/UiTheme.h"
 
@@ -16,7 +20,7 @@ namespace
     // list and the footer - plus the air between them. Change a metric here and
     // change this, or the page fits to a height it no longer has.
     //------------------------------------------------------------------------------
-    constexpr float DesignHeight = 640.0f;
+    constexpr float DesignHeight = 676.0f;
 
     // A page that ran the full width of a 21:9 monitor would put the [+] buttons a
     // foot of mouse travel from the numbers they change. The column is capped, and
@@ -39,8 +43,17 @@ namespace
     constexpr float ButtonH     = 38.0f;
 
     constexpr float TitleTop    = 8.0f;
-    constexpr float PointsTop   = 62.0f;
-    constexpr float RowsTop     = 104.0f;
+
+    // The tab bar, between the title's rule and the points line - see the note on
+    // Layout::tabs. Everything below used to start at PointsTop=62/RowsTop=104;
+    // both are pushed down by the bar's own height plus its gap to make room, and
+    // DesignHeight grew by the same amount so the page still fits.
+    constexpr float TabsTop     = 58.0f;
+    constexpr float TabHeight   = 30.0f;
+    constexpr float TabGap      = 6.0f;
+
+    constexpr float PointsTop   = 98.0f;
+    constexpr float RowsTop     = 140.0f;
 
     // The trait block: a heading, a row of four slots, then the pick list
     constexpr float TraitsGap   = 22.0f;   // Under the last stat row
@@ -102,6 +115,31 @@ namespace
                 return TextFormat("spell %i   mana %i", player.SpellPower(), player.MaxMana());
         }
     }
+
+    // The three tab labels, in Tab order.
+    constexpr const char *TabLabel[3] = { "STATS", "INVENTORY", "MAGIC" };
+
+    //------------------------------------------------------------------------------
+    // What each school's signature effect actually does - see combat/Magic.cpp's
+    // table for the numbers and combat/Stats.h for why elements and resistances
+    // were dropped in favour of these. One line each, in Magic order, written for
+    // the player rather than for the code: this is the answer to "what does
+    // casting this do" that otherwise only lives in a comment.
+    //------------------------------------------------------------------------------
+    const char *MagicEffectText(Magic magic)
+    {
+        switch (magic)
+        {
+            case Magic::Flame:  return "burns - can jump once to a nearby enemy";
+            case Magic::Spark:  return "every hit is a critical strike";
+            case Magic::Toxin:  return "stacks - at max stacks the target flees";
+            case Magic::Blast:  return "knocks back and interrupts";
+            case Magic::Splash: return "chills - slows the target's own pace";
+            case Magic::Flash:  return "blinds - the target loses track of you";
+            case Magic::Nova:   return "the only real area of effect on the table";
+            default:             return "bleeds - short, sharp, no spread";  // Rend
+        }
+    }
 }
 
 void CharacterSheet::Toggle()
@@ -109,11 +147,15 @@ void CharacterSheet::Toggle()
     open = !open;
     justOpened = open;
 
-    // The pick list closes with the page. A list left open would reopen onto a slot
-    // the player picked several floors ago, which reads as the page having
-    // remembered something it has no business remembering.
+    // The pick list closes with the page, and it always reopens on Stats. A list
+    // left open would reopen onto a slot the player picked several floors ago,
+    // and a page that reopened onto Inventory or Magic because that was where it
+    // was last closed would be a page that remembered something it has no
+    // business remembering - Stats is where the one thing on this page that is
+    // ever urgent (unspent points) actually lives.
     if (open)
     {
+        tab = Tab::Stats;
         picking = -1;
         scroll = 0;
     }
@@ -148,6 +190,21 @@ CharacterSheet::Layout CharacterSheet::Measure() const
     out.titleY = out.page.y + TitleTop*out.ls;
     out.pointsY = out.page.y + PointsTop*out.ls;
     out.derivedX = out.page.x + out.page.width*DerivedShare;
+
+    //------------------------------------------------------------------------------
+    // The tab bar. Always three, always this wide - a bar that resized itself per
+    // tab would make the page feel like it was rebuilding rather than switching.
+    //------------------------------------------------------------------------------
+    {
+        const float tabW = (out.page.width - TabGap*out.ls*2.0f)/3.0f;
+        const float tabY = out.page.y + TabsTop*out.ls;
+
+        for (int i = 0; i < 3; ++i)
+        {
+            out.tabs[i] = { out.page.x + i*(tabW + TabGap*out.ls), tabY,
+                            tabW, TabHeight*out.ls };
+        }
+    }
 
     for (int row = 0; row < (int)Stat::Count; ++row)
     {
@@ -195,6 +252,24 @@ CharacterSheet::Layout CharacterSheet::Measure() const
 
     out.purseY = listBottom + 4.0f*out.ls;
 
+    //------------------------------------------------------------------------------
+    // Inventory and Magic's one big list, spanning the same band Stats fills with
+    // its rows and trait block - from where the rows would start down to where
+    // the purse line sits, so switching tabs does not change the page's shape.
+    //------------------------------------------------------------------------------
+    {
+        const float contentTop = out.page.y + RowsTop*out.ls;
+
+        out.content = { out.page.x, contentTop, out.page.width,
+                        out.purseY - contentTop - 6.0f*out.ls };
+        out.contentRowHeight = ListRow*out.ls;
+
+        const float cstep = out.contentRowHeight + 4.0f*out.ls;
+
+        out.contentVisible = (cstep > 0.0f) ? (int)(out.content.height/cstep) : 0;
+        if (out.contentVisible < 1) out.contentVisible = 1;
+    }
+
     const float footerY = out.page.y + out.page.height - ButtonH*out.ls;
 
     out.respec = { out.page.x, footerY, 150.0f*out.ls, ButtonH*out.ls };
@@ -209,6 +284,13 @@ Rectangle CharacterSheet::Layout::ListRowAt(int slot) const
     const float step = listRowHeight + 4.0f*ls;
 
     return { list.x, list.y + slot*step, list.width, listRowHeight };
+}
+
+Rectangle CharacterSheet::Layout::ContentRowAt(int slot) const
+{
+    const float step = contentRowHeight + 4.0f*ls;
+
+    return { content.x, content.y + slot*step, content.width, contentRowHeight };
 }
 
 //----------------------------------------------------------------------------------
@@ -236,7 +318,8 @@ void CharacterSheet::BuildPickable(const TraitLoadout &traits, int owned[MaxTrai
     }
 }
 
-void CharacterSheet::Update(Player &player, TraitLoadout &traits)
+void CharacterSheet::Update(Player &player, const Arsenal &arsenal, const Spellbook &spells,
+                            TraitLoadout &traits)
 {
     if (!open) return;
 
@@ -251,21 +334,71 @@ void CharacterSheet::Update(Player &player, TraitLoadout &traits)
 
     BuildPickable(traits, owned, ownedCount);
 
-    // The wheel scrolls the pick list, and only while one is open. Read before the
-    // click so a frame that does both acts on the row the player was looking at.
-    if (picking >= 0)
+    //------------------------------------------------------------------------------
+    // The wheel scrolls whichever list is actually showing - the trait pick list
+    // on Stats, or Inventory/Magic's own content list on theirs - and only one of
+    // the three is ever a candidate at once. Read before the click, so a frame
+    // that does both acts on the row the player was looking at.
+    //------------------------------------------------------------------------------
+    int scrollCount = 0;
+    int scrollVisible = 1;
+    bool scrollable = false;
+
+    if ((tab == Tab::Stats) && (picking >= 0))
+    {
+        scrollCount = ownedCount;
+        scrollVisible = page.listVisible;
+        scrollable = true;
+    }
+    else if (tab == Tab::Inventory)
+    {
+        scrollCount = arsenal.OwnedCount();
+        scrollVisible = page.contentVisible;
+        scrollable = true;
+    }
+    else if (tab == Tab::Magic)
+    {
+        scrollCount = spells.OwnedCount();
+        scrollVisible = page.contentVisible;
+        scrollable = true;
+    }
+
+    if (scrollable)
     {
         const float wheel = GetMouseWheelMove();
 
         if (wheel != 0.0f) scroll -= (wheel > 0.0f) ? 1 : -1;
 
-        const int most = ownedCount - page.listVisible;
+        const int most = scrollCount - scrollVisible;
 
         if (scroll > most) scroll = most;
         if (scroll < 0) scroll = 0;
     }
 
     if (!in.clicked) return;
+
+    //------------------------------------------------------------------------------
+    // The tabs, checked before anything tab-specific. Switching resets both the
+    // trait picker and the scroll - the same reasoning as Toggle: a list carried
+    // over from the tab just left is a list showing the wrong thing.
+    //------------------------------------------------------------------------------
+    for (int i = 0; i < 3; ++i)
+    {
+        if (!in.Over(page.tabs[i])) continue;
+
+        tab = (Tab)i;
+        picking = -1;
+        scroll = 0;
+
+        return;
+    }
+
+    // Works from any tab - closing the page is not a Stats-only decision.
+    if (in.Over(page.close)) { open = false; return; }
+
+    // Inventory and Magic are read-only reference tabs: nothing below this point
+    // is theirs to click.
+    if (tab != Tab::Stats) return;
 
     //------------------------------------------------------------------------------
     // The stat buttons.
@@ -327,11 +460,11 @@ void CharacterSheet::Update(Player &player, TraitLoadout &traits)
         return;
     }
 
-    if (in.Over(page.respec)) { player.RespecStats(); return; }
-    if (in.Over(page.close)) open = false;
+    if (in.Over(page.respec)) player.RespecStats();
 }
 
-void CharacterSheet::Draw(const Player &player, const TraitLoadout &traits) const
+void CharacterSheet::Draw(const Player &player, const Arsenal &arsenal, const Spellbook &spells,
+                          const TraitLoadout &traits) const
 {
     if (!open) return;
 
@@ -362,6 +495,27 @@ void CharacterSheet::Draw(const Player &player, const TraitLoadout &traits) cons
     DrawRectangleRec({ page.page.x, ruleY, page.page.width, 1.0f*ls },
                      Fade(UiDim, 0.45f));
 
+    //------------------------------------------------------------------------------
+    // The tabs. Always three, always drawn, whichever is open picked out with its
+    // own row of colour - the same idiom the four stats already use to say "this
+    // is the one".
+    //------------------------------------------------------------------------------
+    for (int i = 0; i < 3; ++i)
+    {
+        const bool active = ((int)tab == i);
+        const Rectangle box = page.tabs[i];
+
+        UiRow(box, ls, active, UiAccent);
+
+        UiLabelCentered(TabLabel[i], box.x + box.width*0.5f,
+                        box.y + (box.height - SmallSize*ls)*0.5f, SmallSize*ls,
+                        active ? UiAccent : UiDim);
+    }
+
+    if (tab == Tab::Inventory) { DrawInventoryTab(page, arsenal); }
+    else if (tab == Tab::Magic) { DrawMagicTab(page, player, spells); }
+    else
+    {
     //------------------------------------------------------------------------------
     // The points line, in green while there is anything to spend.
     //
@@ -536,13 +690,14 @@ void CharacterSheet::Draw(const Player &player, const TraitLoadout &traits) cons
                 (summary[0] != '\0') ? UiInk : UiDim);
     }
 
+    } // tab == Tab::Stats
+
     //------------------------------------------------------------------------------
-    // The purse.
-    //
-    // All three, and only here. A shop shows the one currency it accepts, so this is
-    // the one screen that can say what the run has actually earned - and the three
-    // sitting side by side is what makes it obvious that they are not
-    // interchangeable.
+    // The purse. All three, on every tab - it is not a fact about one of them, it
+    // is a fact about the run, and this is the screen that is about the run. A
+    // shop shows the one currency it accepts; three numbers over a counter that
+    // takes one of them is two numbers of noise, so somewhere has to show all
+    // three.
     //------------------------------------------------------------------------------
     const char *money = TextFormat("%i coins      %i gems      %i contracts",
                                    player.purse.coins, player.purse.gems,
@@ -551,17 +706,135 @@ void CharacterSheet::Draw(const Player &player, const TraitLoadout &traits) cons
     UiLabel(money, page.page.x, page.purseY, SmallSize*ls, UiAccent);
 
     //------------------------------------------------------------------------------
-    // The respec, and what it costs, which is nothing.
+    // The respec, and what it costs, which is nothing. Stats-only: undoing a spend
+    // means nothing on a page that shows what is owned or what a school does.
     //
     // Said on the button's own line rather than left to be discovered. The rates in
     // this system are new and will move; a player who cannot undo a spend is being
     // asked to commit to numbers that have not settled, and one who can undo it but
     // does not know that is in exactly the same position.
     //------------------------------------------------------------------------------
-    UiButton(page.respec, true, ls, in, "RESPEC", UiPanel, UiInk);
+    if (tab == Tab::Stats)
+    {
+        UiButton(page.respec, true, ls, in, "RESPEC", UiPanel, UiInk);
 
-    UiLabel("free, any time", page.respec.x + page.respec.width + 12.0f*ls,
-            page.respec.y + (page.respec.height - SmallSize*ls)*0.5f, SmallSize*ls, UiDim);
+        UiLabel("free, any time", page.respec.x + page.respec.width + 12.0f*ls,
+                page.respec.y + (page.respec.height - SmallSize*ls)*0.5f, SmallSize*ls, UiDim);
+    }
 
     UiButton(page.close, true, ls, in, "CLOSE   TAB", UiPanel, UiInk);
+}
+
+//----------------------------------------------------------------------------------
+// Every weapon owned: what it does, what forging has done to it, what kind of
+// weapon it is. Read-only - equipping is still the wheel's job, this is where you
+// check what you are carrying before you decide to change it.
+//----------------------------------------------------------------------------------
+void CharacterSheet::DrawInventoryTab(const Layout &page, const Arsenal &arsenal) const
+{
+    const float ls = page.ls;
+
+    int owned[MaxWeapons];
+    int ownedCount = 0;
+
+    for (int i = 0; (i < arsenal.Count()) && (ownedCount < MaxWeapons); ++i)
+    {
+        if (!arsenal.Owns(i)) continue;
+
+        owned[ownedCount++] = i;
+    }
+
+    if (ownedCount <= 0)
+    {
+        UiLabel("nothing owned yet - the merchant sells weapons for coins",
+                page.content.x, page.content.y, SmallSize*ls, UiDim);
+
+        return;
+    }
+
+    for (int slot = 0; slot < page.contentVisible; ++slot)
+    {
+        const int index = scroll + slot;
+
+        if (index >= ownedCount) break;
+
+        const int id = owned[index];
+        const Rectangle box = page.ContentRowAt(slot);
+
+        UiRow(box, ls, false, UiAccent);
+        DrawRectangleRec({ box.x, box.y, 4.0f*ls, box.height }, UiAccent);
+
+        UiLabel(arsenal.NameAt(id), box.x + (RowPad + 8.0f)*ls, box.y + 6.0f*ls,
+                SmallSize*ls + 2.0f*ls, UiInk);
+
+        const std::string tagText = WeaponTagsText(arsenal.TagsAt(id));
+
+        UiLabel(TextFormat("dmg %i    reach %.1f    %s", arsenal.DamageAt(id),
+                           arsenal.ReachAt(id), tagText.c_str()),
+                box.x + (RowPad + 8.0f)*ls, box.y + box.height - (SmallSize + 6.0f)*ls,
+                SmallSize*ls - 1.0f*ls, UiDim);
+
+        const bool maxed = !arsenal.CanForge(id);
+
+        UiLabelRight(TextFormat("forged %i / %i%s", arsenal.Forge(id), WeaponForgeMax,
+                                maxed ? "  (max)" : ""),
+                    box.x + box.width - RowPad*ls,
+                    box.y + (box.height - SmallSize*ls)*0.5f, SmallSize*ls, UiDim);
+    }
+}
+
+//----------------------------------------------------------------------------------
+// Every school owned: what its signature effect actually does, and its numbers.
+// The answer to "what does casting this do" that otherwise only lives in a
+// comment in combat/Magic.cpp.
+//----------------------------------------------------------------------------------
+void CharacterSheet::DrawMagicTab(const Layout &page, const Player &player,
+                                  const Spellbook &spells) const
+{
+    const float ls = page.ls;
+
+    int owned[(int)Magic::Count];
+    int ownedCount = 0;
+
+    for (int i = 0; i < (int)Magic::Count; ++i)
+    {
+        if (!spells.Owns((Magic)i)) continue;
+
+        owned[ownedCount++] = i;
+    }
+
+    if (ownedCount <= 0)
+    {
+        UiLabel("nothing owned yet - the mystic sells schools for gems",
+                page.content.x, page.content.y, SmallSize*ls, UiDim);
+
+        return;
+    }
+
+    for (int slot = 0; slot < page.contentVisible; ++slot)
+    {
+        const int index = scroll + slot;
+
+        if (index >= ownedCount) break;
+
+        const Magic magic = (Magic)owned[index];
+        const MagicDef &def = MagicAt(magic);
+        const Rectangle box = page.ContentRowAt(slot);
+
+        UiRow(box, ls, false, def.colour);
+        DrawRectangleRec({ box.x, box.y, 4.0f*ls, box.height }, def.colour);
+
+        UiLabel(def.name, box.x + (RowPad + 8.0f)*ls, box.y + 6.0f*ls,
+                SmallSize*ls + 2.0f*ls, def.colour);
+
+        UiLabel(MagicEffectText(magic), box.x + (RowPad + 8.0f)*ls,
+                box.y + box.height - (SmallSize + 6.0f)*ls, SmallSize*ls - 1.0f*ls, UiDim);
+
+        UiLabelRight(TextFormat("x%.2f dmg    %i mana    empowered %i / %i",
+                                def.damageMult*spells.DamageMult(magic),
+                                spells.CostOf(magic, player.Mods()),
+                                spells.Empower(magic), SpellEmpowerMax),
+                    box.x + box.width - RowPad*ls,
+                    box.y + (box.height - SmallSize*ls)*0.5f, SmallSize*ls, UiDim);
+    }
 }

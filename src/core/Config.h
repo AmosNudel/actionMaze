@@ -593,6 +593,13 @@ namespace Config
     constexpr int   PlayerExpFirstLevel = 120;      // exp from level 1 to level 2
     constexpr float PlayerExpGrowth     = 1.15f;    // each level costs this multiple of the last
 
+    // The run ---------------------------------------------------------------
+    // How many floors clear the dungeon. Reaching the portal on this depth, with
+    // it cleared, ends the run in victory instead of opening onto a sixth floor -
+    // a run needs a top as well as a bottom, or "how far can you get" never
+    // actually resolves into an answer.
+    constexpr int   VictoryDepth = 5;
+
     //--------------------------------------------------------------------------
     // Mana
     //--------------------------------------------------------------------------
@@ -626,6 +633,61 @@ namespace Config
     constexpr int   SpellBasePrice      = 4;
 
     //--------------------------------------------------------------------------
+    // Magic effects
+    //--------------------------------------------------------------------------
+    // What each school does instead of an element - see the note on Stats.h. All
+    // first-guess numbers, sized to read clearly in a fight rather than measured
+    // against a full balance pass; expect these to move once they have been played.
+    //
+    // FLAME and REND share one tick rate rather than each carrying their own,
+    // because the two are the same MECHANISM (a DOT applied through
+    // Enemy::dotTime) wearing different numbers - a burn that ticks on a different
+    // clock to a bleed would be two systems for the one idea.
+    //--------------------------------------------------------------------------
+    constexpr float MagicDotTickInterval   = 0.5f;   // Seconds between ticks, either DOT
+
+    // FLAME: a wide, patient burn - the longest DOT on the table, and the only one
+    // that jumps. The radius is deliberately short: a chain that reached across a
+    // whole room would make every pack fight the same fight regardless of formation.
+    constexpr float FlameBurnDuration      = 4.0f;
+    constexpr int   FlameBurnDamagePerTick = 3;
+    constexpr float FlameSpreadRadius      = 3.0f;
+
+    // REND: the same mechanism as FLAME, short and sharp instead of wide and patient
+    // - a blade wound closes faster than a fire burns out, and hurts more while it
+    // is open.
+    constexpr float RendBleedDuration      = 2.0f;
+    constexpr int   RendBleedDamagePerTick = 5;
+
+    // TOXIN: stacks rather than ticking on its own clock, so repeated hits are what
+    // grows it. At the cap the target panics rather than piling higher forever - a
+    // poison with no ceiling would need no cap AND no flee, which is a different
+    // spell.
+    constexpr int   ToxinMaxStacks    = 5;
+    constexpr int   ToxinDamagePerStack = 2;
+    constexpr float ToxinTickInterval = 1.0f;
+    constexpr float ToxinFleeDuration = 3.0f;
+
+    // BLAST: a hard shove along the bolt's own line of travel, applied where
+    // Enemy::Shove already lands a hammer's stagger - see Projectile.cpp.
+    constexpr float BlastKnockbackSpeed = 9.0f;
+
+    // SPLASH: a plain multiplier on the move input, applied at the one place every
+    // movement branch of the AI already funnels through - see EnemyManager.cpp.
+    constexpr float SplashSlowFactor   = 0.5f;
+    constexpr float SplashSlowDuration = 3.0f;
+
+    // FLASH: drains detection to zero and holds it there rather than damaging
+    // anything - the one school that is entirely an interrupt.
+    constexpr float FlashBlindDuration = 2.0f;
+
+    // NOVA: the one school with an actual area of effect - every other living
+    // enemy within this of the impact point takes the same blow the mote's real
+    // target did. Set against the same two-unit body NOVA's own impact art is
+    // sized for, wide enough to catch whatever was standing next to the target.
+    constexpr float NovaRadius = 3.5f;
+
+    //--------------------------------------------------------------------------
     // Vendors
     //--------------------------------------------------------------------------
     // How many a floor may have ABOVE the guaranteed first one - so the roll runs
@@ -652,6 +714,47 @@ namespace Config
     // room and to know which it is; short enough that the names are not a layer of
     // text over the whole map.
     constexpr float VendorLabelRange   = 22.0f;
+
+    // A currency drop's coin/coin-stack prop, against the dungeon pack's own scale
+    // - see world/Loot.cpp. One knob rather than a per-model guess, since all four
+    // props come off the same sheet and should sit at the same size relative to
+    // the floor tiles around them.
+    constexpr float LootPropScale      = 1.0f;
+
+    //--------------------------------------------------------------------------
+    // The treasure room.
+    //
+    // Game::SeedRoomLoot already drops a gem in every otherwise-empty room and a
+    // bigger one in a Vault or a Library; a Vault ADDITIONALLY scatters a few
+    // separate piles of coins, so it reads as a chest someone tipped over rather
+    // than as the same one-drop consolation every other empty room gets.
+    //--------------------------------------------------------------------------
+    constexpr int VaultCoinPilesMin  = 3;
+    constexpr int VaultCoinPilesMax  = 5;
+    constexpr int VaultCoinAmountMin = 4;
+    constexpr int VaultCoinAmountMax = 12;
+
+    //--------------------------------------------------------------------------
+    // Limited stock.
+    //
+    // Each vendor's UNOWNED list is rerolled to a small offered subset every
+    // floor (Game::StartNewRun / Game::Descend), rather than showing everything
+    // the player does not yet own. An item wanted but not offered is a reason to
+    // come back down a floor and check again, not a permanent lockout - nothing
+    // here ever gates an ALREADY OWNED item's Upgrade or Sell row.
+    //
+    // Sized against each table: the merchant's weapon list is the longest, so it
+    // gets the widest window; the mystic's eight schools and the captain's
+    // thirteen traits get correspondingly smaller ones.
+    //--------------------------------------------------------------------------
+    constexpr int   MerchantStockPerFloor = 5;
+    constexpr int   MysticStockPerFloor   = 3;
+    constexpr int   CaptainStockPerFloor  = 3;
+
+    // Of the price PriceFor(...) would otherwise ask (Arsenal.cpp). One knob for
+    // "the merchant costs too much" rather than reworking that formula's three
+    // constants by feel every time it needs adjusting.
+    constexpr float WeaponPriceScale      = 0.7f;
 
     //--------------------------------------------------------------------------
     // The starting kit
@@ -870,13 +973,33 @@ namespace Config
     // Defend ------------------------------------------------------------------
     // The relic is priced in swings that get through rather than in bodies that
     // arrive: a raider that is ignored keeps hitting, at roughly one swing every
-    // two seconds, so 60 is about a minute of being left alone. The player's job
-    // is to stop them being left alone.
+    // two seconds, so 90 is a minute and a half of being left alone. The
+    // player's job is to stop them being left alone.
+    //
+    // Softened from the first pass (60 HP, a wave of 4 every 9s) once it played
+    // as a pure DPS-against-a-clock race: every spawn was a raider, so there was
+    // never any personal threat and the only lever was how fast the player could
+    // clear a wave before the next one landed on top of it.
     constexpr float DefendTimeLimit     = 75.0f;
-    constexpr int   DefendRelicHealth   = 60;
+    constexpr int   DefendRelicHealth   = 90;
     constexpr int   DefendHitDamage     = 4;
-    constexpr float DefendWaveGap       = 9.0f;
-    constexpr int   DefendWaveSize      = 4;
+    constexpr float DefendWaveGap       = 12.0f;
+    constexpr int   DefendWaveSize      = 3;
+
+    //--------------------------------------------------------------------------
+    // Not every spawn raids. This fraction of each wave ignores the player and
+    // beelines the relic exactly as before; the rest spawn as ORDINARY hostiles
+    // - `raiding` left false - and chase and fight the player through the same
+    // AI the floor's own population uses.
+    //
+    // Without this the event was one note played twelve times: nothing here was
+    // ever a threat to the player, only to the relic, so standing still and
+    // swinging was strictly correct. A body that comes for the PLAYER instead is
+    // what turns "defend the relic" into a fight rather than a chore with a
+    // health bar.
+    //--------------------------------------------------------------------------
+    constexpr float DefendRaiderFraction = 0.65f;
+
     // How far out raiders come in from. Well outside the ring the player will be
     // standing in, so they are visibly arriving rather than appearing on top of
     // the thing they are here for.
@@ -1302,6 +1425,18 @@ namespace Config
         // because anything reads it yet.
         //----------------------------------------------------------------------
         StatBlock stats;
+
+        //----------------------------------------------------------------------
+        // How much of its own pool this KIND absorbs before it flinches, on top
+        // of whatever its tier adds - see EnemyTierDef::poise in EnemyRank.h,
+        // which is where the mechanism and the units (a fraction of max health)
+        // are explained. Tier alone used to be the whole of it, which meant a
+        // Minion and a Warrior staggered identically at the same tier despite
+        // one of them being built to take a hit and the other built to run.
+        // This is the kind's own floor; a Champion of either still adds the
+        // tier's 0.125 on top.
+        //----------------------------------------------------------------------
+        float poise;
     };
 
     constexpr EnemyArchetype EnemyTypes[] =
@@ -1318,7 +1453,7 @@ namespace Config
         // already small pool; two over on skill is barely a crit at all, and is
         // there so a swarm occasionally stings rather than always tickling.
           40,  6,  8, 1.30f, 2.00f, 5.6f,   2.0f, 2.2f, 2.4f,   0.00f, false,
-          -1, false, { 6, 10, 12, 10 } },
+          -1, false, { 6, 10, 12, 10 }, 0.00f },
 
         // Slow and heavy, blade in the right hand. The one that fights defensively,
         // and the only row whose cooldown is set by the guard rather than by the
@@ -1341,7 +1476,7 @@ namespace Config
         // health in the table, and under it on skill - it does not need luck, it
         // needs you to still be standing there in four seconds' time.
           90, 11, 20, 1.90f, 2.00f, 4.0f,   2.0f, 2.2f, 2.4f,   0.55f, false,
-          -1, false, { 16, 12, 7, 10 } },
+          -1, false, { 16, 12, 7, 10 }, 0.06f },
 
         // Quick and light, axe, and answered by swinging back rather than by
         // waiting. Still no guard - 1.15 leaves nowhere near enough gap to raise
@@ -1363,7 +1498,7 @@ namespace Config
         // Rogue the body in a pack that can actually take a chunk out of you -
         // and it pays for it with the second-lowest constitution here.
           55,  7, 12, 1.15f, 2.00f, 6.0f,   2.0f, 2.2f, 2.4f,   0.00f, false,
-          -1, false, { 8, 10, 18, 10 } },
+          -1, false, { 8, 10, 18, 10 }, 0.02f },
 
         // Staff, and a bolt off the end of it. The second ranged archetype, and
         // deliberately not a reskinned Archer: it stands at 7 where the Archer
@@ -1384,7 +1519,7 @@ namespace Config
         // one school on the table nothing else uses much, so a green streak across
         // a room is unambiguously an enemy cast and not the player's own.
           50, 12, 16, 2.40f, 2.00f, 4.4f,   2.0f, 7.0f, 9.0f,   0.00f, true,
-          (int)Magic::Toxin, true, { 5, 15, 10, 10 } },
+          (int)Magic::Toxin, true, { 5, 15, 10, 10 }, 0.00f },
 
         //----------------------------------------------------------------------
         // The one that shoots. Crossbow, and a real arrow that travels.
@@ -1408,7 +1543,7 @@ namespace Config
         // threat is its standoff, not its numbers, and a stat line that agreed
         // with the crossbow would make it the answer to everything at range.
           45,  8, 14, 2.20f, 2.00f, 4.6f,   2.0f, 9.0f, 11.0f,  0.00f, true,
-          -1, false, { 9, 11, 10, 10 } },
+          -1, false, { 9, 11, 10, 10 }, 0.02f },
 
         //----------------------------------------------------------------------
         // The two hander, and the reason attack variants exist.
@@ -1437,7 +1572,7 @@ namespace Config
         // base numbers a bonus on top is how a table stops having a top and
         // starts having an outlier.
           110, 18, 28, 2.60f, 2.10f, 3.8f,   2.0f, 2.3f, 2.6f,   0.00f, false,
-          -1, false, { 13, 10, 10, 10 } },
+          -1, false, { 13, 10, 10, 10 }, 0.08f },
     };
 
     constexpr int EnemyTypeCount = (int)(sizeof(EnemyTypes)/sizeof(EnemyTypes[0]));

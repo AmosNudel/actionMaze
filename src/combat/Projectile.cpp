@@ -224,6 +224,59 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
 
             enemy.TakeDamageFrom(shot.damage, contact);
 
+            //----------------------------------------------------------------------
+            // What the school does, over and above the damage just applied.
+            //
+            // Two of the eight need more than one enemy can answer for on its own -
+            // BLAST's shove wants the bolt's own line of travel, and NOVA's area
+            // wants the rest of the list - so those two are handled here rather
+            // than inside Enemy::ApplyMagicEffect, which covers the other six.
+            //----------------------------------------------------------------------
+            if (mote)
+            {
+                const Magic school = shot.look.magic->school;
+
+                enemy.ApplyMagicEffect(school);
+
+                if (school == Magic::Blast)
+                {
+                    // Along the bolt's own line of travel, so the shove reads as
+                    // the impact carrying the target rather than as a push from
+                    // nowhere. Interrupts whatever the blow caught it doing, the
+                    // same way a hammer's stun already does to the player's own
+                    // fights - a shove that left a swing or a channel running
+                    // through it would not read as a knockback at all.
+                    enemy.Shove(Vector3Normalize(shot.velocity), Config::BlastKnockbackSpeed);
+
+                    enemy.meleePending = false;
+                    enemy.shotPending = false;
+                    enemy.channelTime = 0.0f;
+                }
+                else if (school == Magic::Nova)
+                {
+                    //------------------------------------------------------------
+                    // The one real area of effect - every OTHER living body within
+                    // NovaRadius of the impact takes the same blow the mote's
+                    // actual target did. `enemy` above already has its own hit;
+                    // this is what makes NOVA a room-clearer rather than a
+                    // single-target school with a wide picture drawn round it.
+                    //------------------------------------------------------------
+                    for (Enemy &other : enemies)
+                    {
+                        if (&other == &enemy) continue;
+                        if (!other.IsAlive()) continue;
+
+                        const float dx = other.body.position.x - contact.x;
+                        const float dz = other.body.position.z - contact.z;
+
+                        if ((dx*dx + dz*dz) > Config::NovaRadius*Config::NovaRadius) continue;
+
+                        other.killedBySpell = true;
+                        other.TakeDamageFrom(shot.damage, contact);
+                    }
+                }
+            }
+
             // The effect goes off ON the enemy, at the point the sweep says the two
             // actually met - not at the centre of the body and not at the end of
             // the substep. A blast that plays a foot to the side of the skeleton it

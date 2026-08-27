@@ -7,6 +7,7 @@
 #include "rlgl.h"
 
 #include <cmath>
+#include <string>
 
 namespace
 {
@@ -39,8 +40,10 @@ Color CurrencyColour(Currency currency)
 {
     switch (currency)
     {
-        // The merchant's gold. Never actually dropped - coins credit straight to the
-        // purse - but the HUD prints the number in it, so it lives with the others.
+        // The merchant's gold. Ordinary kills still credit it straight to the purse
+        // - see the note on Loot.h - but a treasure room can drop it physically
+        // now too (Game::SeedRoomLoot), and the character page prints the total
+        // regardless of which way it arrived.
         case Currency::Coins:     return { 245, 215, 120, 255 };
 
         // The mystic's violet, which is also the magic palette
@@ -53,9 +56,66 @@ Color CurrencyColour(Currency currency)
     }
 }
 
+namespace
+{
+    constexpr const char *DungeonDir = "models/dungeon/";
+    constexpr const char *DungeonTexture = "models/dungeon/dungeon_texture.png";
+
+    //------------------------------------------------------------------------------
+    // Loads one prop against the shared dungeon atlas and rebinds it onto the lit
+    // shader - the same two steps EventManager::Load takes for the relic, and for
+    // the same reasons: without the atlas argument glTF's relative-URI texture
+    // gives this its own private copy of a PNG the level already has, and without
+    // the shader it comes out flat white beside furniture that is being lit.
+    //
+    // Missing is not an error - see the note on Loot.h - so this returns null
+    // rather than logging a warning per model; LootManager::Load logs once for
+    // the whole set instead.
+    //------------------------------------------------------------------------------
+    Model *LoadProp(AssetManager &assets, Shader &lit, const char *name)
+    {
+        const std::string path = std::string(DungeonDir) + name;
+
+        if (!FileExists(AssetManager::Resolve(path).c_str())) return nullptr;
+
+        Model &model = assets.GetModel(path, DungeonTexture);
+
+        for (int i = 0; i < model.materialCount; ++i) model.materials[i].shader = lit;
+
+        return &model;
+    }
+}
+
 void LootManager::Load(AssetManager &assets)
 {
     glow = &GlowTexture(assets);
+
+    Shader &lit = assets.GetShader("shaders/lit.vs", "shaders/lit.fs");
+
+    coin = LoadProp(assets, lit, "props_small/coin.gltf");
+    stackSmall = LoadProp(assets, lit, "props_small/coin_stack_small.gltf");
+    stackMedium = LoadProp(assets, lit, "props_small/coin_stack_medium.gltf");
+    stackLarge = LoadProp(assets, lit, "props_small/coin_stack_large.gltf");
+
+    if (coin == nullptr)
+    {
+        TraceLog(LOG_WARNING, "LOOT: no coin props - drops fall back to the glow billboard");
+    }
+}
+
+//----------------------------------------------------------------------------------
+// Which of the four a drop this size draws as. Thresholds are a first guess at
+// what reads as "a coin", "a few", "a handful" and "a pile" - there is no amount
+// on the table yet that reaches the top one from a single kill, so LARGE is
+// currently only ever seen from the treasure-room seeding pass.
+//----------------------------------------------------------------------------------
+Model *LootManager::ModelFor(int amount) const
+{
+    if (amount >= 16) return (stackLarge != nullptr) ? stackLarge : stackMedium;
+    if (amount >= 6)  return (stackMedium != nullptr) ? stackMedium : stackSmall;
+    if (amount >= 2)  return (stackSmall != nullptr) ? stackSmall : coin;
+
+    return coin;
 }
 
 void LootManager::Clear()
@@ -93,26 +153,25 @@ void LootManager::Update(float delta)
 }
 
 //----------------------------------------------------------------------------------
-// A bright core in a soft halo, both billboarded, both additive.
+// A coin or a coin stack, spinning slowly where it fell - or, for whichever drops
+// have no model at all, the glow billboard everything additive in the game is
+// made of.
 //
-// The same two-part object every mote and every beam in the game is made of, and
-// sharing it is the point: the player has already learned that additive light means
-// something to interact with, and a drop that was drawn any other way would have to
-// teach that again.
-//
-// Depth is READ but not written, so a gem behind a table is hidden by the table and
-// two gems side by side do not cut each other's halo into a hard edge.
+// Two passes rather than one branch per drop: the props are opaque and
+// depth-tested like any other piece of furniture, and the fallback glow is
+// additive with depth writes off, same as a mote's impact. Mixing the two states
+// per draw call would mean toggling the blend mode and the depth mask inside the
+// loop, once per drop, for what is in practice never more than a handful of
+// bodies on screen.
 //----------------------------------------------------------------------------------
 void LootManager::Draw(const Camera3D &camera) const
 {
-    if ((glow == nullptr) || drops.empty()) return;
-
-    rlDisableDepthMask();
-    BeginBlendMode(BLEND_ADDITIVE);
+    if (drops.empty()) return;
 
     for (const LootDrop &drop : drops)
     {
-        const Color colour = CurrencyColour(drop.currency);
+        Model *model = ModelFor(drop.amount);
+        if (model == nullptr) continue;
 
         // Eased out rather than linear, so it leaves the body quickly and settles
         // slowly - which reads as being thrown rather than as being slid
@@ -125,15 +184,50 @@ void LootManager::Draw(const Camera3D &camera) const
                              drop.rest.y + RestHeight + bob,
                              drop.rest.z + drop.pop.z*eased };
 
-        // A slow turn on the core's size rather than on its orientation - it is a
-        // billboard and has no orientation to turn - so it pulses instead
+        // A slow turn in place, standing in for the pulse the billboard version
+        // used - a spinning coin reads as "something worth having" the way the
+        // pulse used to, and it is a real turn rather than a fake one now that
+        // there is a mesh to turn.
+        const float yaw = drop.age*SpinRate*RAD2DEG;
+
+        // Untinted for coins - the model's own gold reads as coins on its own -
+        // and the currency's own hue for gems and contracts, which borrow the
+        // same mesh. See the note on Loot.h for why there is no separate gem prop.
+        const Color tint = (drop.currency == Currency::Coins) ? WHITE : CurrencyColour(drop.currency);
+
+        DrawModelEx(*model, at, { 0.0f, 1.0f, 0.0f }, yaw,
+                   { Config::LootPropScale, Config::LootPropScale, Config::LootPropScale }, tint);
+    }
+
+    if (glow == nullptr) return;
+
+    bool anyFallback = false;
+    for (const LootDrop &drop : drops) { if (ModelFor(drop.amount) == nullptr) anyFallback = true; }
+    if (!anyFallback) return;
+
+    rlDisableDepthMask();
+    BeginBlendMode(BLEND_ADDITIVE);
+
+    for (const LootDrop &drop : drops)
+    {
+        if (ModelFor(drop.amount) != nullptr) continue;
+
+        const Color colour = CurrencyColour(drop.currency);
+
+        const float popT = (drop.age >= PopTime) ? 1.0f : (drop.age/PopTime);
+        const float eased = 1.0f - (1.0f - popT)*(1.0f - popT);
+
+        const float bob = sinf(drop.age*BobRate)*BobHeight;
+
+        const Vector3 at = { drop.rest.x + drop.pop.x*eased,
+                             drop.rest.y + RestHeight + bob,
+                             drop.rest.z + drop.pop.z*eased };
+
         const float pulse = 1.0f + 0.12f*sinf(drop.age*SpinRate);
 
         DrawBillboard(camera, *glow, at, HaloSize, Fade(colour, 0.30f));
         DrawBillboard(camera, *glow, at, CoreSize*pulse, colour);
 
-        // A pool on the floor under it, so the light has somewhere to land and the
-        // drop reads as being IN the room rather than pasted over it
         const Vector3 floorAt = { at.x, drop.rest.y + 0.02f, at.z };
 
         DrawBillboard(camera, *glow, floorAt, HaloSize*0.9f, Fade(colour, 0.16f));

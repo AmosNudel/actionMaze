@@ -34,6 +34,14 @@
 struct MagicDef
 {
     const char *name;       // Shown on the debug readout, so keep it short
+
+    // Which row this is. A plain mirror of the table's own position - the enum is
+    // contiguous and the table is indexed by it - but the enemy hit path only ever
+    // holds a `const MagicDef *` (see ProjectileLook::magic), and a pointer into a
+    // file-local table cannot be turned back into an index from outside Magic.cpp.
+    // Carrying the answer here is one field rather than exposing the table.
+    Magic school;
+
     Color colour;           // The mote in flight
     VfxKind impact;         // The sheet that plays where it lands
     Color impactTint;       // What that sheet is multiplied by

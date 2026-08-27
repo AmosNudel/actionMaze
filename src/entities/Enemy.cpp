@@ -75,7 +75,13 @@ namespace
         // Every other tier has a poise of zero and falls straight through, so this
         // costs them nothing and reads as the same code path it always was.
         //--------------------------------------------------------------------------
-        const float threshold = TierAt(enemy.tier).poise*enemy.maxHealth;
+        // The kind's own floor plus whatever the tier adds - see the note on
+        // Config::EnemyArchetype::poise. A Champion Warrior stacks both; a
+        // Champion Mage still has only the tier's, because folding when
+        // reached is the point of the kind and a Champion tag should not undo
+        // it.
+        const float threshold = (Config::EnemyTypes[enemy.type].poise
+                                 + TierAt(enemy.tier).poise)*enemy.maxHealth;
 
         if (threshold > 0.0f)
         {
@@ -159,6 +165,84 @@ void Enemy::TakeDamageFrom(int amount, Vector3 source)
     }
 
     Apply(*this, amount, blocked);
+}
+
+//----------------------------------------------------------------------------------
+// What a school leaves behind, over and above the damage TakeDamageFrom already
+// applied.
+//
+// Dead bodies feel nothing - checked once here rather than in every branch, since
+// a corpse cannot burn, panic or be slowed and a case that tried would just be
+// leaving state on something RemoveDead is about to take away.
+//
+// FLAME and REND both set the same `dotTime` mechanism and differ only in the
+// numbers they set it to - see the note on Config::MagicDotTickInterval. Refreshed
+// rather than added when one is already running: a second bolt lands as a
+// STRONGER burn, not a second one queued behind the first, which is the same rule
+// Enemy::Stun already follows for the same reason.
+//----------------------------------------------------------------------------------
+void Enemy::ApplyMagicEffect(Magic magic)
+{
+    if (!IsAlive()) return;
+
+    switch (magic)
+    {
+        case Magic::Flame:
+            if (dotTime <= 0.0f) dotTickTimer = Config::MagicDotTickInterval;
+
+            dotTime = Config::FlameBurnDuration;
+            dotDamagePerTick = Config::FlameBurnDamagePerTick;
+            dotSpreads = true;
+            break;
+
+        case Magic::Rend:
+            if (dotTime <= 0.0f) dotTickTimer = Config::MagicDotTickInterval;
+
+            dotTime = Config::RendBleedDuration;
+            dotDamagePerTick = Config::RendBleedDamagePerTick;
+            dotSpreads = false;
+            break;
+
+        //----------------------------------------------------------------------
+        // TOXIN stacks rather than refreshing a timer - repeated hits are what
+        // grows it, and at the cap it panics rather than piling higher. The
+        // stacks are spent on the panic: a poison that keeps counting past the
+        // cap would need a second flee to spend it on.
+        //----------------------------------------------------------------------
+        case Magic::Toxin:
+            if (poisonStacks <= 0) poisonTickTimer = Config::ToxinTickInterval;
+
+            if (poisonStacks < Config::ToxinMaxStacks) poisonStacks++;
+
+            if (poisonStacks >= Config::ToxinMaxStacks)
+            {
+                fleeTime = Config::ToxinFleeDuration;
+                poisonStacks = 0;
+            }
+            break;
+
+        case Magic::Splash:
+            if (Config::SplashSlowDuration > slowTime) slowTime = Config::SplashSlowDuration;
+            break;
+
+        // Holds detection at zero rather than damaging anything - see
+        // EnemyManager::Update, which reads this instead of running the ordinary
+        // sight meter while it is above zero.
+        case Magic::Flash:
+            if (Config::FlashBlindDuration > blindTime) blindTime = Config::FlashBlindDuration;
+            detection = 0.0f;
+            break;
+
+        // SPARK's guaranteed crit is decided at the cast, and BLAST's shove and
+        // NOVA's area both need information an enemy does not have (the bolt's own
+        // line of travel, and the rest of the enemy list) - see
+        // ProjectileManager::Advance for those two.
+        case Magic::Spark:
+        case Magic::Blast:
+        case Magic::Nova:
+        default:
+            break;
+    }
 }
 
 void Enemy::NoticeAttackFrom(Vector3 origin)

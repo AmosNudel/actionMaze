@@ -28,6 +28,18 @@ class Player
 {
 public:
     void Spawn(Vector3 position);
+
+    //------------------------------------------------------------------------------
+    // A whole new character: level 1, no points spent, no mana banked.
+    //
+    // Deliberately separate from Spawn, which is a PLACEMENT and carries level,
+    // experience and spent points across a floor change on purpose - see the note
+    // on Game::Descend. This is the one call that actually throws a character away,
+    // and it exists for exactly one caller: starting a fresh run after a defeat or
+    // a victory screen.
+    //------------------------------------------------------------------------------
+    void ResetCharacter();
+
     void Update(float delta, const InputState &input, float yaw);
 
     // pressed/held and styles are indexed by Hand

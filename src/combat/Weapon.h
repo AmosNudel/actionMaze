@@ -6,6 +6,30 @@
 #include <string>
 
 //----------------------------------------------------------------------------------
+// What KIND of thing a weapon is, for anyone showing a list of them - the shop, the
+// character page's Inventory tab - rather than for combat, which already has style
+// and the four behaviours for that.
+//
+// A mask rather than one enum because a few weapons are legitimately more than one
+// of these at once: a wand is both Casting and Ranged, a dagger is both OneHanded
+// and Thrown.
+//----------------------------------------------------------------------------------
+enum WeaponTag : unsigned
+{
+    TagOneHanded = 1u << 0,
+    TagTwoHanded = 1u << 1,
+    TagCasting   = 1u << 2,
+    TagRanged    = 1u << 3,
+    TagThrown    = 1u << 4,
+    TagBlocking  = 1u << 5,
+};
+
+// Compact, in a fixed order, for a shop row or an inventory line - "1H  CAST" or
+// "2H  RANGED  THROWN". By value and not into a shared buffer - see the note on
+// ShopScreen::Row for exactly the bug that shape caused once already.
+std::string WeaponTagsText(unsigned tags);
+
+//----------------------------------------------------------------------------------
 // What a weapon does, as opposed to what it looks like.
 //
 // Reach is how far from the eye the tip of the blade ends up. It is not where the
@@ -97,6 +121,10 @@ struct WeaponStats
     // World units a second of shove, along the blow. Reads as weight, and it is
     // the crowd answer - a weapon that pushes buys the room to swing again.
     float knockback = 0.0f;
+
+    // What kind of thing this is, for a list rather than for combat - see
+    // WeaponTag above.
+    unsigned tags = 0;
 };
 
 // modelHeight comes from the loaded model's bounding box

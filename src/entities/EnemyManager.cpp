@@ -819,6 +819,45 @@ void EnemyManager::UpdateRaider(Enemy &enemy, float delta, Level &level)
     UpdateAnimation(enemy, delta, move.y);
 }
 
+//----------------------------------------------------------------------------------
+// FLAME's one jump, spent on the way out of the burn rather than at every tick -
+// see the call site in Update. Nearest rather than random, so it reads as the fire
+// actually catching on whatever was closest rather than picking a body across the
+// room for no visible reason.
+//----------------------------------------------------------------------------------
+void EnemyManager::SpreadBurnFrom(Enemy &from)
+{
+    int target = -1;
+    float nearest = Config::FlameSpreadRadius;
+
+    for (int i = 0; i < (int)enemies.size(); ++i)
+    {
+        Enemy &other = enemies[(size_t)i];
+
+        if (&other == &from) continue;
+        if (!other.IsAlive()) continue;
+        if (other.dotTime > 0.0f) continue;     // Already alight - nothing to catch
+
+        const float dx = other.body.position.x - from.body.position.x;
+        const float dz = other.body.position.z - from.body.position.z;
+        const float away = sqrtf(dx*dx + dz*dz);
+
+        if (away > nearest) continue;
+
+        nearest = away;
+        target = i;
+    }
+
+    if (target < 0) return;
+
+    Enemy &spread = enemies[(size_t)target];
+
+    spread.dotTime = Config::FlameBurnDuration;
+    spread.dotTickTimer = Config::MagicDotTickInterval;
+    spread.dotDamagePerTick = Config::FlameBurnDamagePerTick;
+    spread.dotSpreads = true;       // It can jump again from its new host
+}
+
 int EnemyManager::BuffedDamage(const Enemy &enemy)
 {
     if (!enemy.IsBuffed()) return enemy.damage;
@@ -996,7 +1035,8 @@ bool EnemyManager::SpawnAtCamp(int campIndex, const Level &level, int playerLeve
 // Camps are assigned in table order and each takes a room no earlier camp claimed,
 // so the order of the table is a priority: the first camp gets the pick of the map.
 //----------------------------------------------------------------------------------
-int EnemyManager::ChooseCampRoom(int campIndex, const std::vector<Room> &rooms) const
+int EnemyManager::ChooseCampRoom(int campIndex, const std::vector<Room> &rooms,
+                                 const std::vector<int> &avoid) const
 {
     if (rooms.empty()) return -1;
 
@@ -1038,6 +1078,13 @@ int EnemyManager::ChooseCampRoom(int campIndex, const std::vector<Room> &rooms) 
     for (int i = 0; i < (int)rooms.size(); i++)
     {
         if (i == SpawnRoom) continue;
+
+        // A vendor's room is meant to be somewhere safe to stand - see the note on
+        // the parameter. Checked before the "taken" test below since it has nothing
+        // to do with what earlier camps chose.
+        bool isVendorRoom = false;
+        for (int v : avoid) { if (v == i) { isVendorRoom = true; break; } }
+        if (isVendorRoom) continue;
 
         // Two camps in one room is one crowded room and two camps that cannot be
         // fought separately, which is the whole point of having camps
@@ -1102,7 +1149,12 @@ void EnemyManager::PopulateCamps(const Level &level, int playerLevel)
     // reads campRooms to see what earlier camps have already claimed
     campRooms.assign(Config::SpawnCampCount, -1);
 
-    for (int i = 0; i < Config::SpawnCampCount; i++) campRooms[i] = ChooseCampRoom(i, rooms);
+    const std::vector<int> &vendorRooms = level.Grid().VendorRooms();
+
+    for (int i = 0; i < Config::SpawnCampCount; i++)
+    {
+        campRooms[i] = ChooseCampRoom(i, rooms, vendorRooms);
+    }
 
     for (int i = 0; i < Config::SpawnCampCount; i++)
     {
@@ -1478,6 +1530,60 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
         if (enemy.channelCooldown > 0.0f) enemy.channelCooldown -= delta;
 
         //--------------------------------------------------------------------------
+        // What magic left behind, ticking and decaying on the same rule poise
+        // just did above: this is happening TO the body, not a thing it is doing,
+        // so a stun or a channel below must not be able to pause it.
+        //--------------------------------------------------------------------------
+        if (enemy.dotTime > 0.0f)
+        {
+            enemy.dotTime -= delta;
+            enemy.dotTickTimer -= delta;
+
+            if (enemy.dotTickTimer <= 0.0f)
+            {
+                enemy.dotTickTimer += Config::MagicDotTickInterval;
+                enemy.TakeDamage(enemy.dotDamagePerTick);
+            }
+
+            if (enemy.IsAlive() && (enemy.dotTime <= 0.0f))
+            {
+                enemy.dotTime = 0.0f;
+
+                // Spent on the way out, not at every tick - a burn that kept
+                // re-spreading itself every half second would turn one cast into
+                // a whole room on fire rather than one jump.
+                if (enemy.dotSpreads)
+                {
+                    enemy.dotSpreads = false;
+                    SpreadBurnFrom(enemy);
+                }
+            }
+        }
+
+        if (enemy.IsAlive() && (enemy.poisonStacks > 0))
+        {
+            enemy.poisonTickTimer -= delta;
+
+            if (enemy.poisonTickTimer <= 0.0f)
+            {
+                enemy.poisonTickTimer += Config::ToxinTickInterval;
+                enemy.TakeDamage(Config::ToxinDamagePerStack*enemy.poisonStacks);
+            }
+        }
+
+        if (enemy.slowTime > 0.0f) enemy.slowTime -= delta;
+        if (enemy.blindTime > 0.0f) enemy.blindTime -= delta;
+
+        // A DOT or a stack of poison can still kill on its own tick, same as any
+        // other source of damage - and a dead body skips everything below exactly
+        // the way it already does at the top of this loop.
+        if (!enemy.IsAlive())
+        {
+            UpdateAnimation(enemy, delta, 0.0f);
+            continue;
+        }
+
+        //--------------------------------------------------------------------------
         // Stunned bodies do not think.
         //
         // Everything below this is a decision - what it can see, whether to close,
@@ -1561,6 +1667,39 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
 
         Vector2 move = { 0.0f, 0.0f };
 
+        //--------------------------------------------------------------------------
+        // TOXIN's panic: a whole separate behaviour, the same shape as raiding
+        // above and for the same reason. Nothing here shares anything with the
+        // ordinary think - no sight cone, no detection, no guard, no swing - it
+        // knows one thing, which is which way the player is, and it wants the
+        // opposite of that.
+        //--------------------------------------------------------------------------
+        if (enemy.fleeTime > 0.0f)
+        {
+            enemy.fleeTime -= delta;
+
+            // Facing AWAY: the negation Body::Update's own convention wants for
+            // facing TOWARD something is exactly what running from it drops -
+            // compare UpdateRaider's atan2f(-toRelic.x, -toRelic.z).
+            if (distance > 1e-3f) enemy.yaw = atan2f(toPlayer.x, toPlayer.z);
+
+            move.y = 1.0f;
+
+            if (enemy.slowTime > 0.0f)
+            {
+                move.x *= Config::SplashSlowFactor;
+                move.y *= Config::SplashSlowFactor;
+            }
+
+            enemy.blocking = false;
+            enemy.body.Update(delta, enemy.yaw, move, false, false);
+            level.ResolveBody(enemy.body);
+
+            UpdateAnimation(enemy, delta, move.y);
+
+            continue;
+        }
+
         // An enemy still climbing out of the floor decides nothing - it does not
         // aggro, turn, close or swing on the way up. One flag covers all four
         // because they all hang off `aware`.
@@ -1573,7 +1712,14 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
         // ...and how much of that has registered. An enemy still filling its meter
         // is looking straight at the player and has not reacted yet, which is the
         // window the player gets to be somewhere else.
-        UpdateDetection(enemy, delta, visible, distance);
+        //
+        // FLASH holds this at zero instead of running the meter at all - blindTime
+        // decayed alongside the other magic effects above. A blinded body cannot
+        // even be FILLING the meter, or it would pick up exactly where it left off
+        // the instant the blind wore off, which reads as it never having lost the
+        // player at all.
+        if (enemy.blindTime > 0.0f) enemy.detection = 0.0f;
+        else UpdateDetection(enemy, delta, visible, distance);
 
         // What it can see this instant, which is not the same as what it is still
         // acting on. Splitting the two is what a chase is: `aware` decides whether
@@ -1917,6 +2063,15 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
         {
             move = { 0.0f, 0.0f };
             enemy.body.Halt();
+        }
+
+        // SPLASH's chill: a plain scale on the movement input itself rather than
+        // on body.maxSpeed, so it fades back to the tier's own speed the instant
+        // slowTime runs out without this having to remember what that speed was.
+        if (enemy.slowTime > 0.0f)
+        {
+            move.x *= Config::SplashSlowFactor;
+            move.y *= Config::SplashSlowFactor;
         }
 
         enemy.body.Update(delta, enemy.yaw, move, false, false);

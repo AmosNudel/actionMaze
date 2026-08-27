@@ -20,6 +20,7 @@
 #include "ui/CharacterSheet.h"
 #include "ui/Hud.h"
 #include "ui/PauseMenu.h"
+#include "ui/RunEndScreen.h"
 #include "ui/ShopScreen.h"
 #include "world/Chaos.h"
 #include "world/Event.h"
@@ -52,10 +53,30 @@ private:
     // What the equipped weapons do this frame, read back from the view model
     void RefreshLoadout();
 
+    //------------------------------------------------------------------------------
+    // A whole fresh run: a new character at depth 1, starting kit only.
+    //
+    // What Init calls once at startup, and what a Restart choice on the run-end
+    // screen calls again - the two are the same operation, which is what lets this
+    // be the only place either of them has to be written. See the note on the
+    // definition for how it differs from Descend.
+    //------------------------------------------------------------------------------
+    void StartNewRun();
+
     // A new floor from a new seed, and everything that stands on it rebuilt to
     // match. What the portal calls, and what F6 calls. See the note on the
     // definition.
     void Descend();
+
+    //------------------------------------------------------------------------------
+    // What finishing a floor actually does: one floor deeper, unless this was the
+    // last one, in which case the run ends in victory instead.
+    //
+    // The one place both ways of finishing a floor - walking the portal's dwell out
+    // and the pause menu's Descend shortcut - have to agree, so a shortcut past the
+    // walk cannot also be a shortcut past the ending.
+    //------------------------------------------------------------------------------
+    void AdvanceFloor();
 
     // The world, one frame. Split out of Update so the pause paths can skip it
     // wholesale rather than each system having to be told to hold still.
@@ -65,6 +86,10 @@ private:
     // which is the same question as "is the world paused".
     bool UpdateScreens();
 
+    // The run-end page, while the run is over. Reads its choice and acts on it -
+    // Restart calls StartNewRun, Quit sets the same flag the pause menu's Quit does.
+    void UpdateRunEnd();
+
     // Rebuilds Player::mods from everything granting one. Called whenever a source
     // changes - which today means whenever the character page or the captain's
     // counter has been open, since neither is worth tracking more finely than that.
@@ -73,6 +98,22 @@ private:
     // The starting kit, and the tables the shops sell out of. Once, after the view
     // model has loaded - the arsenal is sized to its weapon list.
     void ResetProgression();
+
+    // Rerolls every vendor's limited stock. Called once per floor, from
+    // StartNewRun and from Descend - see Config::MerchantStockPerFloor and its
+    // neighbours.
+    void RerollVendorStock();
+
+    //------------------------------------------------------------------------------
+    // A guaranteed find in every room a camp, a vendor and an event all passed
+    // over.
+    //
+    // Called once per floor, after all three have placed themselves, so this is
+    // the one pass that actually knows what is left unclaimed. See the note on the
+    // definition for why a room can otherwise end up holding nothing but its own
+    // furniture.
+    //------------------------------------------------------------------------------
+    void SeedRoomLoot();
 
     // Free the mouse, or take it back. Tracked rather than set every frame: raylib
     // talks to the window manager on every call, and one place deciding it is also
@@ -148,6 +189,7 @@ private:
     CharacterSheet sheet;
     PauseMenu pause;
     ShopScreen shop;
+    RunEndScreen runEnd;
     ViewModel viewModel;
     ViewModelEditor viewModelEditor;
     CombatDebug combatDebug;
@@ -188,4 +230,15 @@ private:
     // actually end the loop - CloseWindow from inside Update would tear the context
     // down under the Draw that is about to run.
     bool quitting = false;
+
+    //------------------------------------------------------------------------------
+    // Whether there is a run in progress, and how it ended if not.
+    //
+    // Defeated the frame Player::IsAlive() goes false; Victorious the frame the
+    // player steps into the portal on Config::VictoryDepth with it cleared, instead
+    // of the ordinary Descend. Either way the world stops ticking - see
+    // UpdateRunEnd - and the only way back to Playing is StartNewRun.
+    //------------------------------------------------------------------------------
+    enum class RunPhase { Playing, Defeated, Victorious };
+    RunPhase runPhase = RunPhase::Playing;
 };

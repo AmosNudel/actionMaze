@@ -56,6 +56,15 @@ public:
     bool Owns(Magic magic) const;
     void Give(Magic magic);
 
+    //------------------------------------------------------------------------------
+    // Limited stock: which UNOWNED schools the mystic is actually selling this
+    // floor. See Arsenal::IsOffered / RerollOffers - same idea, same reason, kept
+    // in step per system rather than shared, since a school and a weapon are priced
+    // and owned in ways that have nothing else in common.
+    //------------------------------------------------------------------------------
+    bool IsOffered(Magic magic) const;
+    void RerollOffers(int count);
+
     int Empower(Magic magic) const;
     bool CanEmpower(Magic magic) const;
     void RaiseEmpower(Magic magic);
@@ -88,5 +97,6 @@ public:
 
 private:
     unsigned char owned[(int)Magic::Count] = { 0 };
+    unsigned char offered[(int)Magic::Count] = { 0 };
     unsigned char empower[(int)Magic::Count] = { 0 };
 };
