@@ -201,16 +201,38 @@ void LootManager::Draw(const Camera3D &camera) const
 
     if (glow == nullptr) return;
 
-    bool anyFallback = false;
-    for (const LootDrop &drop : drops) { if (ModelFor(drop.amount) == nullptr) anyFallback = true; }
-    if (!anyFallback) return;
+    //------------------------------------------------------------------------------
+    // The additive pass: a full glow billboard for whichever drops have no prop
+    // model at all, and a smaller aura on top of the model for whichever drops
+    // are a currency worth more than an ordinary coin.
+    //
+    // Gems and contracts get the aura EVEN THOUGH the coin prop they borrow
+    // loaded fine - see the note on Loot.h for why there is no separate gem
+    // model. A coin the pack drew for gold reads as gold on its own; the same
+    // mesh tinted violet or red needs the light around it to read as something
+    // rarer rather than as a coloured coin.
+    //------------------------------------------------------------------------------
+    bool anyGlow = false;
+
+    for (const LootDrop &drop : drops)
+    {
+        if ((ModelFor(drop.amount) == nullptr) || (drop.currency != Currency::Coins))
+        {
+            anyGlow = true;
+            break;
+        }
+    }
+
+    if (!anyGlow) return;
 
     rlDisableDepthMask();
     BeginBlendMode(BLEND_ADDITIVE);
 
     for (const LootDrop &drop : drops)
     {
-        if (ModelFor(drop.amount) != nullptr) continue;
+        const bool fallback = (ModelFor(drop.amount) == nullptr);
+
+        if (!fallback && (drop.currency == Currency::Coins)) continue;
 
         const Color colour = CurrencyColour(drop.currency);
 
@@ -223,14 +245,10 @@ void LootManager::Draw(const Camera3D &camera) const
                              drop.rest.y + RestHeight + bob,
                              drop.rest.z + drop.pop.z*eased };
 
-        const float pulse = 1.0f + 0.12f*sinf(drop.age*SpinRate);
+        const float core = fallback ? CoreSize : Config::LootAuraCore;
+        const float halo = fallback ? HaloSize : Config::LootAuraHalo;
 
-        DrawBillboard(camera, *glow, at, HaloSize, Fade(colour, 0.30f));
-        DrawBillboard(camera, *glow, at, CoreSize*pulse, colour);
-
-        const Vector3 floorAt = { at.x, drop.rest.y + 0.02f, at.z };
-
-        DrawBillboard(camera, *glow, floorAt, HaloSize*0.9f, Fade(colour, 0.16f));
+        DrawAura(camera, *glow, at, drop.rest.y, colour, core, halo, drop.age*SpinRate);
     }
 
     EndBlendMode();

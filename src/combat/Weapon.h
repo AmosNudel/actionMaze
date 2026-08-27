@@ -1,7 +1,7 @@
 #pragma once
 
 #include "combat/AttackStyle.h"
-#include "combat/StatBlock.h"
+#include "combat/Modifiers.h"
 
 #include <string>
 
@@ -84,12 +84,15 @@ struct WeaponStats
     // Both hands count. Two weapons held are two sets of bonuses, which is what
     // makes the off hand a real slot rather than a place to keep a shield.
     //
-    // The bonus is expressed as an OFFSET from neutral, not as a stat line: a
-    // weapon giving `+4 arms` is +4 whatever the character underneath it is, and
-    // adding blocks would make two weapons of +10 arms into a character of 20 arms
-    // rather than one of +20.
+    // A Modifiers, restricted BY CONVENTION to its flat and fraction columns -
+    // never `.stat` - see the long note at the top of combat/Modifiers.h. A
+    // weapon changes what the numbers it touches DO (a sword hits harder, a
+    // shield takes less), not the stats those numbers are derived from: a
+    // shield that quietly raised constitution used to read as extra health
+    // rather than as what standing behind it is actually worth, which is the
+    // one thing this column exists to avoid.
     //------------------------------------------------------------------------------
-    StatBlock bonus = { 0, 0, 0, 0 };
+    Modifiers bonus;
 
     //------------------------------------------------------------------------------
     // Behaviours.

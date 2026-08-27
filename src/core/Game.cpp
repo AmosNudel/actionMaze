@@ -76,6 +76,7 @@ void Game::Init()
     events.Load(assets);
     vendors.Load(assets);
     loot.Load(assets);
+    pickups.Load(assets);
 
     // Everything above is a once-ever asset load with no level or character to be
     // ready yet. Everything a RUN needs - the level itself, the starting kit, the
@@ -115,6 +116,7 @@ void Game::StartNewRun()
     projectiles.Clear();
     vfx.Clear();
     loot.Clear();
+    pickups.Clear();
 
     ResetChaos(chaos, level.Depth());
     portal.Reset();
@@ -128,6 +130,7 @@ void Game::StartNewRun()
 
     enemies.PopulateCamps(level, player.level);
     SeedRoomLoot();
+    SeedPickups();
 
     hud.ResetMap(level);
 
@@ -173,6 +176,15 @@ void Game::ResetProgression()
     }
 
     arsenal.Reset(listing, Config::StartingWeapon);
+
+    // The shield is equipped as well as owned - see below. The staff is owned
+    // only: a run does not have to find the merchant to learn it can cast, but
+    // starting with both hands already spoken for by a sword and a shield is
+    // enough of a kit handed to the player without a third choice made for
+    // them too.
+    arsenal.GiveByName(Config::StartingShield);
+    arsenal.GiveByName(Config::StartingStaff);
+
     spells.Reset((Magic)Config::StartingMagic);
     traits.Clear();
 
@@ -182,15 +194,18 @@ void Game::ResetProgression()
     RefreshModifiers();
 
     //------------------------------------------------------------------------------
-    // Put the starting weapon in the hand.
+    // Sword and board: the ordinary opening kit the rest of the run is measured
+    // against - see the note on Config::StartingWeapon.
     //
-    // The view model opens with slot 0 in the right hand, which was fine while every
-    // weapon was free and is wrong now: slot 0 is whatever the asset folder listed
-    // first, and the player may not own it. Stepping from an empty hand lands on the
-    // first thing they DO own.
+    // Both found BY NAME rather than with arsenal.NextOwned(-1, 1) - that finds
+    // the first OWNED weapon in table order, which is fine while the sword is
+    // the only thing owned and wrong the moment a second starting item is: the
+    // shield sorts before the sword alphabetically, so "the first one owned"
+    // silently became the shield in both hands the moment GiveByName above
+    // started granting it too.
     //------------------------------------------------------------------------------
-    viewModel.SetSlot(Hand::Right, arsenal.NextOwned(-1, 1));
-    viewModel.SetSlot(Hand::Left, -1);
+    viewModel.SetSlot(Hand::Right, arsenal.IndexOfName(Config::StartingWeapon));
+    viewModel.SetSlot(Hand::Left, arsenal.IndexOfName(Config::StartingShield));
 
     magic = (Magic)Config::StartingMagic;
 }
@@ -292,6 +307,58 @@ void Game::SeedRoomLoot()
     }
 }
 
+//----------------------------------------------------------------------------------
+// Health, mana and a buff, scattered a few to a floor - see world/Pickup.h.
+//
+// Unlike SeedRoomLoot this does not avoid a vendor's, an event's or a camp's own
+// room: a gem is a consolation for a room with nothing else going on, and a
+// pickup is the opposite of that - something to grab mid-fight is worth more IN
+// a camp's room than in an empty one. Entrance and Portal are still excluded,
+// the same reasoning SeedRoomLoot uses: neither is a room the player fights or
+// lingers in.
+//
+// Each pickup claims a different room rather than several landing on top of
+// each other, so a floor's handful of them reads as spread through the dungeon
+// rather than piled in whichever room happened to be rolled first.
+//----------------------------------------------------------------------------------
+void Game::SeedPickups()
+{
+    const std::vector<Room> &rooms = level.Grid().Rooms();
+
+    std::vector<int> eligible;
+
+    for (int i = 0; i < (int)rooms.size(); ++i)
+    {
+        const RoomKind kind = rooms[(size_t)i].kind;
+
+        if ((kind == RoomKind::Entrance) || (kind == RoomKind::Portal)) continue;
+
+        eligible.push_back(i);
+    }
+
+    if (eligible.empty()) return;
+
+    // Picks and removes a random room from what is left, so the next pickup
+    // cannot land in the same one - fewer eligible rooms than requested simply
+    // places fewer pickups rather than doubling any of them up.
+    auto placeSome = [&](int count, auto spawnOne)
+    {
+        for (int n = 0; (n < count) && !eligible.empty(); ++n)
+        {
+            const int pick = GetRandomValue(0, (int)eligible.size() - 1);
+            const int roomIndex = eligible[(size_t)pick];
+
+            eligible.erase(eligible.begin() + pick);
+
+            spawnOne(level.FindOpenSpotIn(rooms[(size_t)roomIndex], 0.4f));
+        }
+    };
+
+    placeSome(Config::PickupHealthPerFloor, [this](Vector3 at) { pickups.Spawn(PickupKind::Health, at); });
+    placeSome(Config::PickupManaPerFloor,   [this](Vector3 at) { pickups.Spawn(PickupKind::Mana, at); });
+    placeSome(Config::PickupBuffPerFloor,   [this](Vector3 at) { pickups.SpawnBuff(at); });
+}
+
 // The view model knows which weapon is in each hand; combat needs to know what
 // that weapon does. This is the seam between the two, and it lives here so
 // neither side has to reach across.
@@ -305,7 +372,10 @@ void Game::RefreshLoadout()
         stats[h] = StatsFor(viewModel.NameFor(hand), styles[h], viewModel.HeightFor(hand));
 
         //--------------------------------------------------------------------------
-        // What the forge added, on the WEAPON's own figure.
+        // What the forge added, on top of the weapon's own bonus - both Modifiers,
+        // both restricted to the flat and fraction columns (see combat/Weapon.h
+        // and combat/Modifiers.h), so summing them here is just ModifiersAdd and
+        // never a StatBlock field added by hand.
         //
         // Here rather than inside StatsFor, because StatsFor answers "what is this
         // kind of weapon" and the forge level answers "what has this player done to
@@ -318,23 +388,18 @@ void Game::RefreshLoadout()
         {
             stats[h].damage = (int)(stats[h].damage*arsenal.DamageMult(slot) + 0.5f);
 
-            const Modifiers forged = arsenal.HeldBonus(slot);
-
-            stats[h].bonus.con  += forged.stat.con;
-            stats[h].bonus.arms += forged.stat.arms;
-            stats[h].bonus.skl  += forged.stat.skl;
-            stats[h].bonus.arc  += forged.stat.arc;
+            stats[h].bonus = ModifiersAdd(stats[h].bonus, arsenal.HeldBonus(slot));
         }
 
         // An empty hand swings nothing, fires nothing, and - the part that is easy
-        // to forget - is worth nothing. A stat bonus left on a hand that is no
-        // longer holding the weapon it came from is a bonus the player keeps by
-        // putting the weapon away, which is the wrong way round.
+        // to forget - is worth nothing. A bonus left on a hand that is no longer
+        // holding the weapon it came from is a bonus the player keeps by putting
+        // the weapon away, which is the wrong way round.
         if (!viewModel.HasWeapon(hand))
         {
             stats[h].melee = false;
             stats[h].ranged = false;
-            stats[h].bonus = StatBlock{ 0, 0, 0, 0 };
+            stats[h].bonus = Modifiers{};
             stats[h].lifesteal = 0.0f;
             stats[h].critBonus = 0.0f;
             stats[h].stun = 0.0f;
@@ -343,24 +408,14 @@ void Game::RefreshLoadout()
     }
 
     //------------------------------------------------------------------------------
-    // Both hands, summed, handed down as one offset.
+    // Both hands, summed, handed down as one Modifiers.
     //
     // Summed here rather than inside the Player because this is the only place that
     // sees the loadout at all - and because it is where the rule that two weapons
     // stack lives. Two of the same weapon is twice the bonus, which is deliberate:
     // fighting with two daggers should be the crit build, not a cosmetic choice.
     //------------------------------------------------------------------------------
-    StatBlock held = { 0, 0, 0, 0 };
-
-    for (int h = 0; h < HandCount; h++)
-    {
-        held.con  += stats[h].bonus.con;
-        held.arms += stats[h].bonus.arms;
-        held.skl  += stats[h].bonus.skl;
-        held.arc  += stats[h].bonus.arc;
-    }
-
-    player.SetHeldBonus(held);
+    player.SetGearMods(ModifiersAdd(stats[0].bonus, stats[1].bonus));
 }
 
 Vector3 Game::AimDirectionFrom(Vector3 muzzle) const
@@ -443,6 +498,7 @@ void Game::Descend()
     portal.Reset();
     portal.PlaceAt(level.PortalPoint());
     loot.Clear();           // Last floor's uncollected gems belong to last floor
+    pickups.Clear();        // Likewise its uncollected pickups
 
     // New rooms, new objectives, new vendors. Both Places clear whatever the old
     // floor had, so nothing survives into a map where its room no longer exists.
@@ -456,6 +512,7 @@ void Game::Descend()
     // about a higher centre than the one that just died.
     enemies.PopulateCamps(level, player.level);
     SeedRoomLoot();
+    SeedPickups();
 
     // Whatever the player had explored was a map of a dungeon that no longer exists
     hud.ResetMap(level);
@@ -569,14 +626,14 @@ bool Game::UpdateScreens()
 }
 
 //----------------------------------------------------------------------------------
-// Everything granting a bonus, summed onto the character.
+// The trait loadout's own bonus, refreshed onto the character.
 //
-// One source today - the traits - and the function exists anyway, because the whole
-// point of Modifiers is that a second source is a line here rather than a new set of
-// hooks in combat. A weapon's forge levels do NOT come through here: those are part
-// of what the HAND is carrying, and they arrive through SetHeldBonus with the
-// weapon's own stat line, which is where a bonus that goes away when you put the
-// thing down belongs.
+// Traits are the one source this rebuilds - Player::Combined() is where the real
+// sum lives, adding this to whatever a running buff and the held gear are worth
+// (see Player::ApplyBuff and RefreshLoadout). A weapon's bonus, and its forge
+// levels, do NOT come through here: those are part of what the HAND is carrying,
+// and they arrive through SetGearMods every frame from RefreshLoadout, which is
+// where a bonus that goes away when you put the weapon down belongs.
 //----------------------------------------------------------------------------------
 void Game::RefreshModifiers()
 {
@@ -724,9 +781,36 @@ void Game::UpdateWorld(float delta)
     if (input.wheel != 0.0f)
     {
         const Hand hand = input.offhand ? Hand::Left : Hand::Right;
+        const Hand other = input.offhand ? Hand::Right : Hand::Left;
 
-        viewModel.SetSlot(hand, arsenal.NextOwned(viewModel.SlotIndex(hand),
-                                                  (input.wheel > 0.0f) ? 1 : -1));
+        const int newIndex = arsenal.NextOwned(viewModel.SlotIndex(hand),
+                                               (input.wheel > 0.0f) ? 1 : -1);
+
+        viewModel.SetSlot(hand, newIndex);
+
+        //--------------------------------------------------------------------
+        // A two-handed weapon takes both hands, so there is never a frame
+        // where one is in view alongside a second item - see TagTwoHanded and
+        // the note on Weapon.cpp's IsTwoHanded for which weapons these are.
+        //
+        // Two directions, both handled the same way: landing a two-hander in
+        // `hand` empties whatever `other` was holding, and landing anything
+        // real in `other` - cycling past empty does not count, but a weapon
+        // does - bumps a two-hander that was sitting in `hand` back out. The
+        // player is always the one who just acted; the hand that goes empty
+        // is always the one that did not.
+        //--------------------------------------------------------------------
+        const bool newIsTwoHanded = (newIndex >= 0)
+                                  && ((arsenal.TagsAt(newIndex) & TagTwoHanded) != 0);
+
+        const int otherIndex = viewModel.SlotIndex(other);
+        const bool otherIsTwoHanded = (otherIndex >= 0)
+                                    && ((arsenal.TagsAt(otherIndex) & TagTwoHanded) != 0);
+
+        if (newIsTwoHanded || (otherIsTwoHanded && (newIndex >= 0)))
+        {
+            viewModel.SetSlot(other, -1);
+        }
     }
 
     ViewModelInput weaponInput;
@@ -953,6 +1037,7 @@ void Game::UpdateWorld(float delta)
 
     vendors.Update(delta);
     loot.Update(delta);
+    pickups.Update(delta);
 
     //------------------------------------------------------------------------------
     // Anything the player is standing on goes into the purse.
@@ -972,6 +1057,11 @@ void Game::UpdateWorld(float delta)
             TraceLog(LOG_INFO, "LOOT: +%i %s", taken[i], CurrencyName((Currency)i));
         }
     }
+
+    // Health, mana and a buff, taken the same way - walked over, nothing to
+    // decide. See PickupManager::Collect for why this pays the player directly
+    // rather than handing anything back for the log line above to report.
+    pickups.Collect(player.Position(), player);
 
     // Whichever of the pool and the events finished second is what clears the floor,
     // so this is asked every frame rather than at the moment either one changes
@@ -1063,6 +1153,7 @@ void Game::Draw()
             events.Draw(camera.Get());
             vendors.Draw(camera.Get());
             loot.Draw(camera.Get());
+            pickups.Draw(camera.Get());
 
             // Last of the world, and the only part of it that is additive: an
             // impact goes over the body it went off on rather than being sorted

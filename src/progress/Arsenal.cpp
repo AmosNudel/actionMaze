@@ -138,6 +138,29 @@ void Arsenal::Give(int index)
     owned[(size_t)index] = 1;
 }
 
+int Arsenal::IndexOfName(const char *name) const
+{
+    for (int i = 0; i < Count(); ++i)
+    {
+        if (NameContains(names[(size_t)i].c_str(), name)) return i;
+    }
+
+    return -1;
+}
+
+void Arsenal::GiveByName(const char *name)
+{
+    const int index = IndexOfName(name);
+
+    if (index < 0)
+    {
+        TraceLog(LOG_WARNING, "ARSENAL: no weapon matching \"%s\" to start with", name);
+        return;
+    }
+
+    owned[(size_t)index] = 1;
+}
+
 bool Arsenal::IsOffered(int index) const
 {
     if ((index < 0) || (index >= Count())) return false;
@@ -287,7 +310,9 @@ Modifiers Arsenal::HeldBonus(int index) const
 {
     Modifiers out;
 
-    out.stat.arms = WeaponForgeArms*Forge(index);
+    // See the note on WeaponForgeArmsEquivalent - a fraction now, not a stat
+    // point sitting on the character for as long as the weapon stays in hand.
+    out.damageDealt = WeaponForgeArmsEquivalent*Forge(index);
 
     return out;
 }

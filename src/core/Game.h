@@ -27,6 +27,7 @@
 #include "world/Event.h"
 #include "world/Level.h"
 #include "world/Loot.h"
+#include "world/Pickup.h"
 #include "world/Vendors.h"
 
 //----------------------------------------------------------------------------------
@@ -116,6 +117,13 @@ private:
     //------------------------------------------------------------------------------
     void SeedRoomLoot();
 
+    // Health, mana and a buff, scattered a few to a floor - see world/Pickup.h
+    // and Config::PickupHealthPerFloor and its neighbours. Called alongside
+    // SeedRoomLoot rather than folded into it: a gem is a consolation for a
+    // room with nothing else in it, and a pickup is seeded independently of
+    // whether the room already holds a vendor, an event or a camp.
+    void SeedPickups();
+
     // Free the mouse, or take it back. Tracked rather than set every frame: raylib
     // talks to the window manager on every call, and one place deciding it is also
     // what stops a screen from forgetting to hand the cursor back.
@@ -167,6 +175,11 @@ private:
     //------------------------------------------------------------------------------
     VendorManager vendors;
     LootManager loot;
+
+    // Health, mana and buff pickups - floor state for the same reason the loot
+    // is: seeded fresh by SeedPickups every time Descend rebuilds the map, and
+    // thrown away with everything else the old floor was holding.
+    PickupManager pickups;
 
     //------------------------------------------------------------------------------
     // What the player has bought, across the whole run.

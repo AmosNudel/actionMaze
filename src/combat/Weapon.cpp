@@ -28,17 +28,27 @@ namespace
     //   the greatsword    lifesteal. The only weapon that pays you to stay in.
     //   the ranged pair   nothing but arcane. Their behaviour is the magic.
     //
-    // The stat bonuses run the same way and are set against each other rather than
-    // against absolutes: nothing here gives more than +6, because +6 arms is worth
-    // about a quarter of a level's whole budget and a weapon that outweighs two
-    // levels of spending is a weapon nobody chooses against.
+    // The bonuses run the same way and are set against each other rather than
+    // against absolutes: nothing here is worth more than about a fifth of what
+    // a whole level's own spending buys, because a weapon that outweighs a
+    // level of points is a weapon nobody chooses against.
+    //
+    // `damageDealt`, `spellPower`, `flatMana` and `damageTaken` all land in
+    // WeaponStats::bonus, a Modifiers - see the note there for why every one of
+    // them is a fraction or a flat figure and never a stat point: a weapon
+    // changes what a number DOES while it is in your hand, not the stat that
+    // number is derived from, so putting it down leaves nothing behind for a
+    // stat page to explain.
     //------------------------------------------------------------------------------
     struct StatOverride
     {
         const char *prefix;
         float reachScale;
         float damageScale;
-        StatBlock bonus;            // Offsets from neutral, NOT a stat line
+        float damageDealt;    // Fraction, melee/ranged - see Modifiers::damageDealt
+        float spellPower;     // Fraction, casters only - see Modifiers::spellPower
+        int   flatMana;       // Pool, casters only - see Modifiers::flatMana
+        float damageTaken;    // Fraction, negative is safer - shield only
         float lifesteal;
         float critBonus;
         float stun;
@@ -47,39 +57,38 @@ namespace
 
     const StatOverride Overrides[] =
     {
-        // Fast and short: it is a throwing knife, and it is the crit weapon. The
-        // skill bonus and the flat chance on top are the same idea said twice,
-        // which is on purpose - a dagger build should feel like it is happening.
-        { "dagger_", 0.85f, 0.75f, { 0, 0, 6, 0 }, 0.00f, 0.08f, 0.0f, 0.0f },
+        // Fast and short: it is a throwing knife, and it is the crit weapon.
+        // The flat chance is its whole identity - nothing else on this row.
+        { "dagger_", 0.85f, 0.75f, 0.00f, 0.00f, 0, 0.00f, 0.00f, 0.10f, 0.0f, 0.0f },
 
-        // Slow, heavy, and it has the length. The reach IS its identity, so what it
-        // carries is the reach and a little weight behind it rather than a
-        // behaviour that would compete with standing further away than everyone.
-        { "halberd", 1.15f, 1.30f, { 2, 3, 0, 0 }, 0.00f, 0.00f, 0.0f, 5.0f },
+        // Slow, heavy, and it has the length. The reach IS its identity, so what
+        // it carries beyond that is a flat bite on top rather than a behaviour
+        // that would compete with standing further away than everyone.
+        { "halberd", 1.15f, 1.30f, 0.12f, 0.00f, 0, 0.00f, 0.00f, 0.00f, 0.0f, 5.0f },
 
         // The greatsword, and the one weapon that pays you to stay in. Ten percent
-        // against a swing that already hits hardest is a real fraction of what a
-        // fight deals back - enough to build around, nowhere near enough to stand
-        // still in, and it returns nothing at all on the swings that miss.
-        { "sword_E", 1.05f, 1.25f, { 3, 4, 0, 0 }, 0.10f, 0.00f, 0.0f, 0.0f },
+        // lifesteal against a swing that already hits hardest is a real fraction of
+        // what a fight deals back - enough to build around, nowhere near enough to
+        // stand still in, and it returns nothing at all on the swings that miss.
+        { "sword_E", 1.05f, 1.25f, 0.16f, 0.00f, 0, 0.00f, 0.10f, 0.00f, 0.0f, 0.0f },
 
         // Short haul, heavy head, and the only thing here that stops an enemy
         // outright. Six tenths of a second is most of a Warrior's gap between
         // swings: it does not kill anything, it decides who swings next.
-        { "hammer_", 0.95f, 1.20f, { 4, 2, 0, 0 }, 0.00f, 0.00f, 0.6f, 4.0f },
+        { "hammer_", 0.95f, 1.20f, 0.08f, 0.00f, 0, 0.00f, 0.00f, 0.00f, 0.6f, 4.0f },
 
         // The middle of the table on every axis, which is what an axe is for. A
-        // little of the shove and none of the rest.
-        { "axe_",    1.00f, 1.10f, { 1, 2, 0, 0 }, 0.00f, 0.00f, 0.0f, 3.0f },
+        // little of the shove and a little of the bite, none of the rest.
+        { "axe_",    1.00f, 1.10f, 0.08f, 0.00f, 0, 0.00f, 0.00f, 0.00f, 0.0f, 3.0f },
 
         // The spear: reach without the halberd's weight. Its trade is that it
         // thrusts, and a thrust catches one body where a sweep catches three.
-        { "spear_",  1.10f, 1.00f, { 1, 1, 3, 0 }, 0.00f, 0.03f, 0.0f, 0.0f },
+        { "spear_",  1.10f, 1.00f, 0.04f, 0.00f, 0, 0.00f, 0.00f, 0.04f, 0.0f, 0.0f },
 
         // The rapier. Thrust, quick, and the second crit weapon - lighter on the
-        // flat chance than the dagger and heavier on the stat, so it scales into a
-        // skill build where the dagger opens one.
-        { "sword_D", 1.00f, 0.95f, { 0, 1, 5, 0 }, 0.00f, 0.04f, 0.0f, 0.0f },
+        // flat chance than the dagger, so it opens a build the dagger already owns
+        // rather than competing with it for the same one.
+        { "sword_D", 1.00f, 0.95f, 0.04f, 0.00f, 0, 0.00f, 0.00f, 0.06f, 0.0f, 0.0f },
 
         //----------------------------------------------------------------------
         // The casters. Arcane and nothing else, and the reason is the same reason
@@ -87,17 +96,21 @@ namespace
         // that also stunned would be answering a question the school already
         // answers.
         //
-        // The staff outweighs the wand because it is two-handed and slower to
-        // bring round; the wand's compensation is that it is quick enough to hold
-        // beside something else.
+        // The staff outweighs the wand on both figures - it is what the school's
+        // reservoir is FOR, and the wand's own compensation is that it is quick
+        // enough to hold beside a shield (see IsTwoHanded, and TagTwoHanded's
+        // enforcement in Game::UpdateWorld) where the staff, now one-handed too,
+        // no longer has to give up an off hand to be worth carrying at all.
         //----------------------------------------------------------------------
-        { "staff_",  1.00f, 1.00f, { 1, 0, 0, 6 }, 0.00f, 0.00f, 0.0f, 0.0f },
-        { "wand_",   1.00f, 1.00f, { 0, 0, 1, 4 }, 0.00f, 0.00f, 0.0f, 0.0f },
+        { "staff_",  1.00f, 1.00f, 0.00f, 0.24f, 5, 0.00f, 0.00f, 0.00f, 0.0f, 0.0f },
+        { "wand_",   1.00f, 1.00f, 0.00f, 0.16f, 4, 0.00f, 0.00f, 0.00f, 0.0f, 0.0f },
 
         // A shield is not a weapon and has no damage worth scaling, so what it
-        // carries is what standing behind it is worth: the only pure constitution
-        // in the table, and the reason to give up an off hand for one.
-        { "shield_", 1.00f, 1.00f, { 6, 0, 0, 0 }, 0.00f, 0.00f, 0.0f, 0.0f },
+        // carries is what standing behind it is worth - not a bigger health pool,
+        // less of every blow actually landing. See the note on Modifiers::
+        // damageTaken and the long one at the top of Modifiers.h for why this is
+        // no longer a stat.
+        { "shield_", 1.00f, 1.00f, 0.00f, 0.00f, 0, -0.15f, 0.00f, 0.00f, 0.0f, 0.0f },
     };
 
     const StatOverride *FindOverride(const std::string &name)
@@ -122,7 +135,14 @@ namespace
     //------------------------------------------------------------------------------
     bool IsTwoHanded(const std::string &name)
     {
-        constexpr const char *TwoHanded[] = { "halberd", "spear_", "sword_E", "staff_" };
+        // The staff is NOT here, deliberately - unlike the halberd, the spear
+        // and the greatsword, its whole identity is the spell leaving it, not
+        // the weight of the thing itself, and a caster giving up a shield to
+        // hold one is a worse trade than the wand already offers for the same
+        // reach. See Game::UpdateWorld's wheel handling for what this list
+        // actually enforces: a hand cannot hold anything alongside whatever is
+        // named here.
+        constexpr const char *TwoHanded[] = { "halberd", "spear_", "sword_E" };
 
         for (const char *prefix : TwoHanded)
         {
@@ -214,7 +234,11 @@ WeaponStats StatsFor(const std::string &name, AttackStyle style, float modelHeig
         stats.reach *= tweak->reachScale;
         stats.damage = (int)(stats.damage*tweak->damageScale);
 
-        stats.bonus = tweak->bonus;
+        stats.bonus.damageDealt = tweak->damageDealt;
+        stats.bonus.spellPower = tweak->spellPower;
+        stats.bonus.flatMana = tweak->flatMana;
+        stats.bonus.damageTaken = tweak->damageTaken;
+
         stats.lifesteal = tweak->lifesteal;
         stats.critBonus = tweak->critBonus;
         stats.stun = tweak->stun;

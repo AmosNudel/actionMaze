@@ -20,12 +20,24 @@
 // figure makes the player quadratic against linear enemy health - the exact failure
 // the enemy rank system exists to prevent. So two kinds of source use two columns:
 //
-//   traits and upgrades -> `stat`, in stat POINTS. A point is a percentage of the
+//   traits and points   -> `stat`, in stat POINTS. A point is a percentage of the
 //                          character's BASE line, added and never compounded, so the
-//                          curve stays linear.
-//   anything temporary  -> the flat columns, worked out from the player's CURRENT
-//                          line at the moment it is applied. A spike on a duty cycle
-//                          preserves the shape while still being worth having late.
+//                          curve stays linear. Earned by levelling or bought from
+//                          the captain - a permanent, deliberate build choice.
+//   anything conditional -> the flat and fraction columns, worked out from the
+//                          player's CURRENT line at the moment they apply. A spike on
+//                          a duty cycle preserves the shape while still being worth
+//                          having late - and this is the ONLY column a WEAPON'S OWN
+//                          bonus is allowed to use (see Weapon.cpp's Overrides
+//                          table): a sword should make blows hit harder while it is
+//                          in your hand, not quietly raise your arms as though you
+//                          had spent a point on it, which is a bonus indistinguishable
+//                          from a stat point except that it vanishes the moment the
+//                          weapon is put down - the exact confusion a shield's old
+//                          +constitution used to cause, reading as a bigger health
+//                          pool rather than as what standing behind it is actually
+//                          worth. A buff pickup is the other tenant of this column,
+//                          for the identical reason - see combat/Buff.h.
 //
 // Everything else here is a fraction ADDED to a fraction, never multiplied together,
 // so two sources of +10% give 20% and not 21%.
@@ -85,6 +97,28 @@ struct Modifiers
     //------------------------------------------------------------------------------
     StatConvert convert[MaxStatConverts];
     int convertCount = 0;
+
+    //------------------------------------------------------------------------------
+    // Gear's own two columns - added last and kept apart from the fractions
+    // above them on purpose: those are all trait territory already, exercised
+    // by the positional table in progress/Traits.cpp, and a field inserted
+    // between two existing ones there silently reinterprets every row after it
+    // rather than failing to compile. New fields belong at the end for exactly
+    // that reason, this pair included.
+    //------------------------------------------------------------------------------
+
+    // The melee/ranged counterpart of spellPower - on top of what arms already
+    // bought. Exists so a weapon's own bonus (see Weapon.cpp's Overrides table)
+    // can say "hits harder" directly rather than through a stat point that
+    // would also move whatever else that stat happens to touch - see the long
+    // note above on why gear works this way and traits do not.
+    float damageDealt = 0.0f;
+
+    // Fraction MORE damage taken - negative is safer, the same convention as
+    // manaCost above. What a shield grants instead of constitution: a bigger
+    // health pool is not what standing behind one is worth, less of every
+    // blow actually landing is.
+    float damageTaken = 0.0f;
 };
 
 // a + b, column by column. Fractions add rather than compound - see the note above.

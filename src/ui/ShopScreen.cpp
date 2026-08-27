@@ -168,20 +168,22 @@ void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
                     {
                         row.deal = Deal::Upgrade;
                         row.price = arsenal.ForgePrice(i);
-                        row.detail = TextFormat("forged %i / %i    +%.0f%% damage, +%i arms    %s",
+                        row.detail = TextFormat("forged %i / %i    +%.0f%% damage    %s",
                                                 arsenal.Forge(i), WeaponForgeMax,
-                                                (arsenal.DamageMult(i) - 1.0f)*100.0f,
-                                                arsenal.Forge(i)*WeaponForgeArms, tagText.c_str());
+                                                ((arsenal.DamageMult(i) - 1.0f)
+                                                 + arsenal.HeldBonus(i).damageDealt)*100.0f,
+                                                tagText.c_str());
                         row.enabled = purse.CanAfford(Currency::Coins, row.price);
                         row.note = row.enabled ? "" : "not enough coins";
                     }
                     else
                     {
                         row.deal = Deal::None;
-                        row.detail = TextFormat("forged %i / %i    +%.0f%% damage, +%i arms    %s",
+                        row.detail = TextFormat("forged %i / %i    +%.0f%% damage    %s",
                                                 WeaponForgeMax, WeaponForgeMax,
-                                                (arsenal.DamageMult(i) - 1.0f)*100.0f,
-                                                arsenal.Forge(i)*WeaponForgeArms, tagText.c_str());
+                                                ((arsenal.DamageMult(i) - 1.0f)
+                                                 + arsenal.HeldBonus(i).damageDealt)*100.0f,
+                                                tagText.c_str());
                         row.note = "fully forged";
                     }
 

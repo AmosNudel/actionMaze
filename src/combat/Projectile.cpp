@@ -199,8 +199,10 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
             const Vector3 contact = CapsuleContactPoint(path, body);
 
             // From where the shot met the body, so a raised shield only stops what
-            // it is pointed at - exactly as a melee swing is judged
-            player.TakeDamageFrom(shot.damage, contact);
+            // it is pointed at - exactly as a melee swing is judged. Never a
+            // parry: that is a timed read of a swing, not something a shield
+            // does to an arrow.
+            player.TakeDamageFrom(shot.damage, contact, false);
 
             if (mote) Burst(shot, contact, vfx);
 

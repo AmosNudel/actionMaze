@@ -447,6 +447,12 @@ struct Enemy
     // of them did, which is what assigning rather than maxing would do.
     void Stun(float seconds);
 
+    // What a PARRY costs it: a flinch it does not get to sidestep on poise the
+    // way a champion soaks ordinary chip damage, held well past an ordinary Hit
+    // clip - see Config::ParryStunTime. Player::TakeDamageFrom decides whether a
+    // blocked blow counts as one; this is what the enemy that swung it pays.
+    void Stagger(float seconds);
+
     // Shoved along `direction` at `speed` world units a second. The direction need
     // not be normalised or flattened; a zero one is ignored.
     //

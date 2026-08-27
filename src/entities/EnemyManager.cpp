@@ -2286,8 +2286,12 @@ void EnemyManager::LandMelee(Enemy &enemy, Player &player)
     //------------------------------------------------------------------------------
     const bool crit = StatRollCrit(enemy.stats);
 
-    player.TakeDamageFrom(ResolveDamage(BuffedDamage(enemy), enemy.stats, crit),
-                          enemy.Center());
+    const bool parried = player.TakeDamageFrom(ResolveDamage(BuffedDamage(enemy), enemy.stats, crit),
+                                               enemy.Center(), true);
+
+    // Caught at exactly the wrong moment: the shield wins outright, and this
+    // body pays for the swing instead of landing it.
+    if (parried) enemy.Stagger(Config::ParryStunTime);
 }
 
 // One shot per Shoot state, guarded by shotPending: the release frame is a

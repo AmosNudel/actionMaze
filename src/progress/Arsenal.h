@@ -24,11 +24,15 @@
 // all. The two are joined by index and nothing else.
 //
 // --- Forging ------------------------------------------------------------------------
-// The merchant raises a weapon's forge level, and each level adds a fraction of the
-// weapon's OWN damage plus a point of arms while it is held. Not a flat number and not
-// a multiplier on the character: a forged dagger is a better dagger, and it is better
-// by the same amount at level 40 as at level 1 - which is the rule Stats.h lays down
-// and the reason the enemy rank curve still means anything.
+// The merchant raises a weapon's forge level, and each level adds two fractions of
+// the weapon's OWN damage: WeaponForgeDamage straight onto the table figure, and
+// WeaponForgeArmsEquivalent through HeldBonus, the same door a weapon's own
+// Overrides row uses for its bonus - see combat/Weapon.h. A forged dagger is a
+// better dagger, and it is better by the same amount at level 40 as at level 1,
+// which is the rule Stats.h lays down and the reason the enemy rank curve still
+// means anything. Nothing here ever moves a stat: see the long note at the top of
+// combat/Modifiers.h for why a forge level - like a weapon's own bonus - is not
+// allowed to.
 //----------------------------------------------------------------------------------
 
 // How many weapons this can track. The pack ships about twenty; the ceiling is here so
@@ -42,10 +46,14 @@ constexpr int WeaponForgeMax = 5;
 // levels is +60% of what the weapon started at, never compounded.
 constexpr float WeaponForgeDamage = 0.12f;
 
-// Arms granted per forge level while the weapon is held. A forged weapon is worth
-// carrying for what it does to the character as well as for what it does on impact,
-// which is what stops forging being a damage slider.
-constexpr int WeaponForgeArms = 1;
+// A second, smaller damage fraction per forge level, on top of WeaponForgeDamage
+// above - see Arsenal::HeldBonus. Kept as its own figure rather than folded into
+// WeaponForgeDamage because it used to be expressed as a point of arms while the
+// weapon was held (StatDamagePerPoint's own rate is what it is converted at) and
+// the two numbers are worth being able to move independently - what a forge level
+// does to the weapon's OWN figure against what it does on top of the character's
+// current line are two different knobs even though both end up as more damage.
+constexpr float WeaponForgeArmsEquivalent = 0.04f;
 
 //----------------------------------------------------------------------------------
 // One weapon as the arsenal needs to see it.
@@ -90,6 +98,28 @@ public:
 
     bool Owns(int index) const;
     void Give(int index);
+
+    //------------------------------------------------------------------------------
+    // The same case-insensitive substring match Reset's own starting weapon
+    // uses, for anything ELSE a run starts owning - see Config::StartingShield
+    // and Config::StartingStaff, and Game::ResetProgression which calls this for
+    // both. Unlike Reset's starting weapon this does not also equip anything:
+    // owning is not equipping anywhere else in this game (see ShopScreen.h) and
+    // a shield handed to the player already in their off hand would be a
+    // choice made for them rather than a kit they were given.
+    //
+    // Logs and does nothing for a name matching no weapon, the same as a
+    // renamed asset folder does for Reset's own starting weapon - missing
+    // starting gear is a warning worth seeing, not a reason to fail the run.
+    //------------------------------------------------------------------------------
+    void GiveByName(const char *name);
+
+    // The first weapon whose name contains `name`, case-insensitive - or -1.
+    // What GiveByName searches with, exposed for the same reason Reset's own
+    // match is worth a name: a caller that needs to point at a SPECIFIC owned
+    // weapon rather than just "the next one" (the wheel's own NextOwned) can
+    // ask for it by name instead of guessing an index.
+    int IndexOfName(const char *name) const;
 
     //------------------------------------------------------------------------------
     // Limited stock: which UNOWNED weapons the merchant is actually selling this
@@ -140,8 +170,9 @@ public:
     float DamageMult(int index) const;
 
     // What holding this weapon is worth on top of its own table bonus. Only the forge
-    // levels - the weapon's authored StatBlock is WeaponStats' business, and summing
-    // the two here would be the same bonus counted twice.
+    // levels - the weapon's authored Modifiers is WeaponStats' business (see
+    // combat/Weapon.h), and summing the two here would be the same bonus counted
+    // twice.
     Modifiers HeldBonus(int index) const;
 
     // How many are owned, for the shop's "you have everything" line

@@ -2,6 +2,7 @@
 
 #include "combat/Attack.h"
 #include "combat/AttackStyle.h"
+#include "combat/Buff.h"
 #include "combat/Modifiers.h"
 #include "combat/Stats.h"
 #include "core/Config.h"
@@ -62,7 +63,14 @@ public:
     bool IsBlocking() const;
 
     void TakeDamage(int amount);
-    void TakeDamageFrom(int amount, Vector3 source);
+
+    // Damage from somewhere a raised shield can be pointed at. Returns whether
+    // this blow was PARRIED - caught in the instant the shield went up rather
+    // than absorbed after a wait - which is the caller's cue to punish whatever
+    // threw it (see EnemyManager::LandMelee). `melee` gates that: a parry is a
+    // timed read of a swing, not something a shield does to an arrow, so a
+    // ranged hit can still be blocked but never parried.
+    bool TakeDamageFrom(int amount, Vector3 source, bool melee);
 
     //------------------------------------------------------------------------------
     // What the last landed blow looked like, for anyone drawing feedback about it.
@@ -91,6 +99,38 @@ public:
     // one way health is ever gained - so a cap that has just grown from a point of
     // constitution is respected without the caller knowing it moved.
     void Heal(int amount);
+
+    // Mana back, capped at the pool - the direct counterpart to Heal, and What a
+    // mana pickup pays into. Not the same path as CreditWeaponKills/
+    // CreditSpellKills below: those are earned by killing and carry a rate
+    // (Config::ManaPerKill) that a trait can modify, where this is a flat amount
+    // handed over outright by something the player walked onto.
+    void GiveMana(int amount);
+
+    //------------------------------------------------------------------------------
+    // A temporary buff - a Pickup's grant, see world/Pickup.h and combat/Buff.h
+    // for the table this reads. Kept apart from `mods` even though both end up
+    // added into combat the same way: `mods` is rebuilt from the trait loadout
+    // whenever it changes (Game::RefreshModifiers) and a buff would be silently
+    // erased by the next equip. Everything derived reads the two summed together
+    // - see the private Combined().
+    //
+    // Takes the KIND rather than a Modifiers directly, and looks the row up
+    // itself - Player is where the buff's clock lives, so it is also where
+    // "what BASTION grants" and "how long BASTION runs" belong, rather than
+    // splitting the two between a caller that read the table and a Player that
+    // only knows the numbers it was handed.
+    //
+    // A second ApplyBuff REPLACES whatever was running rather than stacking,
+    // both the effect and the clock: two pickups grabbed in quick succession are
+    // one buff refreshed, not a stronger one, which is what keeps a corridor of
+    // them from being a build in its own right.
+    //------------------------------------------------------------------------------
+    void ApplyBuff(BuffKind kind);
+
+    float BuffTimeLeft() const { return buffTimeLeft; }
+    bool HasBuff() const { return buffTimeLeft > 0.0f; }
+    BuffKind ActiveBuff() const { return activeBuff; }
 
     //------------------------------------------------------------------------------
     // Progression
@@ -129,26 +169,33 @@ public:
     int MaxHealth() const;
 
     //------------------------------------------------------------------------------
-    // The stats the character actually fights with: the spent line, plus whatever
-    // both hands are carrying.
+    // The stats the character actually fights with: the spent line, with the
+    // trait loadout's own point bonuses and conversions applied on top.
     //
-    // Everything derived reads THIS and not `stats`, so a weapon's bonus is worth
-    // exactly what a spent point is worth and neither has to be handled twice. The
-    // character sheet is the one place that wants the two apart, so it can show
-    // what was earned against what is being held.
+    // Held gear does NOT appear here any more - see the note on SetGearMods.
+    // What a weapon is worth lives in Combined() instead, read directly by
+    // whatever it actually changes (WeaponDamage, SpellPower, TakeDamage), so
+    // this stays exactly the answer to "what did the character build", which is
+    // the one thing the character sheet's STATS tab wants and the one thing a
+    // weapon in the hand must never be allowed to answer for.
     //------------------------------------------------------------------------------
     StatBlock Fighting() const;
 
     //------------------------------------------------------------------------------
-    // What the hands are carrying, as an offset from neutral. Set once a frame from
-    // the loadout; both weapons' bonuses are already summed by the caller.
+    // What both hands are granting right now, as a Modifiers - see the long note
+    // at the top of combat/Modifiers.h and on WeaponStats::bonus for why this is
+    // flat figures and fractions and never a stat point. Set once a frame from
+    // the loadout; both weapons' bonuses, and whatever their forge levels add on
+    // top, are already summed by the caller.
     //
-    // The pool it moves is clamped, never carried up. A point of constitution
-    // SPENT grows the health inside the bar with it - see RefreshHealth - but a
-    // weapon's constitution must not, or swapping a shield in and out is a heal
-    // with a cooldown of one frame.
+    // Whatever pool a column here touches is clamped down, never carried up -
+    // the same rule a shield's old constitution point always followed, now
+    // applied to (for instance) a staff's mana pool instead: putting the weapon
+    // away shortens the bar, picking it up lengthens it and leaves the current
+    // amount where it was, which is the only version of this a player cannot
+    // farm by cycling the mouse wheel.
     //------------------------------------------------------------------------------
-    void SetHeldBonus(const StatBlock &bonus);
+    void SetGearMods(const Modifiers &bonus);
 
     // What magic is multiplied against - the ARCANE counterpart of a weapon's own
     // damage. At neutral arcane this is exactly Config::BaseSpellPower, so a fresh
@@ -160,7 +207,7 @@ public:
     //
     // Written by whoever owns a source - today that is the trait loadout and nothing
     // else - and read by everything derived. It is not part of `stats` and not part
-    // of `heldBonus`, because it is a third thing: not the character, and not what
+    // of `gearMods`, because it is a third thing: not the character, and not what
     // they are holding, but what they have learned to do.
     //
     // Setting it refreshes the health pool the same way spending a point does, so a
@@ -212,10 +259,10 @@ public:
     // and reads them directly for every derived row it prints.
     StatBlock stats;
 
-    // What both hands add, as an offset from neutral. Not part of `stats` because
+    // What both hands are granting - see SetGearMods. Not part of `stats` because
     // it is not the character - it is what they picked up, and it goes away when
     // they put it down.
-    StatBlock heldBonus = { 0, 0, 0, 0 };
+    Modifiers gearMods;
 
     int level = 1;
     int exp = 0;
@@ -231,6 +278,13 @@ public:
     int mana = 0;
 
 private:
+    // Forces a raised (or still raising, or lowering) shield down immediately and
+    // starts its recovery timer - see the note on blockCooldown. Called the
+    // instant a shield actually stops something, regardless of whether the
+    // button is still held: the timer is what makes blocking again take a
+    // moment, not letting go of the button.
+    void DropBlock();
+
     // Brings `maxHealth` back in line with `stats`, carrying the current health up
     // with it by however much the pool grew. Growing the pool without growing the
     // health in it means a point of constitution makes the bar longer and the
@@ -240,6 +294,21 @@ private:
     // What the traits are granting. Derived - see SetModifiers - and never written
     // from anywhere but there.
     Modifiers mods;
+
+    // What a Buff pickup is granting right now, and how much longer it runs -
+    // see ApplyBuff. Zero and empty is the neutral state; ticked down in Update
+    // and cleared the frame it reaches zero, rather than left sitting at zero
+    // and checked with HasBuff every time, so a stale, spent Modifiers is never
+    // one frame away from silently being summed in again.
+    Modifiers buffMods;
+    float buffTimeLeft = 0.0f;
+    BuffKind activeBuff = BuffKind::Might;   // Meaningless while buffTimeLeft is 0
+
+    // What combat actually reads: the traits, the running buff and whatever
+    // both hands are granting, summed. Every derived figure below goes through
+    // this and never through `mods` alone - see the class note on ApplyBuff for
+    // why the three are kept as separate fields right up until here.
+    Modifiers Combined() const;
 
     //------------------------------------------------------------------------------
     // Spell kills that have not yet added up to a whole point of mana.
@@ -254,4 +323,15 @@ private:
     AttackState attacks[2];
     AttackStyle styles[2] = { AttackStyle::Swing, AttackStyle::Swing };
     float yaw = 0.0f;
+
+    // Seconds left before a dropped shield can be raised again - zero means it
+    // is free to go up. Set by DropBlock the instant a blow lands on it, so
+    // holding the button back down does not just raise it a second time.
+    float blockCooldown = 0.0f;
+
+    // Seconds the shield has been continuously up (IsBlocking() true) since it
+    // last went up. What TakeDamageFrom reads against Config::ParryWindow to
+    // tell a parry from an ordinary block: small means the blow landed right as
+    // the shield went up, which is the timed read a parry is supposed to reward.
+    float blockActiveTime = 0.0f;
 };

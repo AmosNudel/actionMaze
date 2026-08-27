@@ -25,6 +25,8 @@ Modifiers ModifiersAdd(const Modifiers &a, const Modifiers &b)
     out.critChance  = a.critChance  + b.critChance;
     out.lifesteal   = a.lifesteal   + b.lifesteal;
     out.spellPower  = a.spellPower  + b.spellPower;
+    out.damageDealt = a.damageDealt + b.damageDealt;
+    out.damageTaken = a.damageTaken + b.damageTaken;
     out.manaCost    = a.manaCost    + b.manaCost;
 
     out.manaPerKill = a.manaPerKill + b.manaPerKill;
@@ -140,6 +142,12 @@ const char *ModifiersText(const Modifiers &mods)
     if (mods.attackSpeed != 0.0f) add(TextFormat("%+.0f%% speed", mods.attackSpeed*100.0f));
     if (mods.moveSpeed   != 0.0f) add(TextFormat("%+.0f%% move", mods.moveSpeed*100.0f));
     if (mods.spellPower  != 0.0f) add(TextFormat("%+.0f%% spell", mods.spellPower*100.0f));
+    if (mods.damageDealt != 0.0f) add(TextFormat("%+.0f%% damage", mods.damageDealt*100.0f));
+
+    // Same convention as manaCost above: negative IS the good direction, so a
+    // shield's row stores -0.15 and this prints "-15% damage taken" without
+    // needing to know that.
+    if (mods.damageTaken != 0.0f) add(TextFormat("%+.0f%% damage taken", mods.damageTaken*100.0f));
 
     // Printed with the sign flipped, because this is the one column stored inverted
     // and "-20% cost" is what the player needs to read

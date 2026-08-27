@@ -547,6 +547,25 @@ namespace Config
     constexpr float BlockArc          = 140.0f; // Degrees the shield actually covers
     constexpr float BlockDamageScale  = 0.25f;  // What gets through a good block
 
+    // A shield blocks exactly one blow before it needs to recover - see the note
+    // on Player::blockCooldown. Long enough that holding it up on every swing
+    // stops working, short enough that a fight built around blocking still has
+    // a rhythm.
+    constexpr float BlockRecoveryTime = 1.0f;
+
+    // How soon after the shield goes up a blow has to land to read as a PARRY
+    // instead of an ordinary block - see the note on Player::blockActiveTime.
+    // Tight enough that raising the shield early and waiting does not qualify;
+    // it has to be timed to the swing.
+    constexpr float ParryWindow       = 0.2f;
+
+    // What a parried blow costs the enemy that swung it: a flinch it does not
+    // get to sidestep on poise, held well past an ordinary Hit clip - see
+    // Enemy::Stagger. Bigger than the hammer's own 0.6s stun (Weapon.cpp's
+    // Overrides table), because this one took perfect timing to earn rather
+    // than just a heavy weapon to swing.
+    constexpr float ParryStunTime     = 1.2f;
+
     // Player ------------------------------------------------------------------
     constexpr int   PlayerMaxHealth   = 100;
     constexpr float PlayerEyeHeight   = BottomHeight + StandHeight;
@@ -753,6 +772,51 @@ namespace Config
     constexpr int VaultCoinAmountMax = 12;
 
     //--------------------------------------------------------------------------
+    // Health, mana and buff pickups - see world/Pickup.h.
+    //
+    // Scattered a few to a floor the same way Game::SeedRoomLoot scatters its
+    // gems: a handful of open rooms, one each, seeded once when the floor is
+    // built rather than dropped by anything - a pickup is the floor's own
+    // furniture, not a reward for a kill.
+    //--------------------------------------------------------------------------
+    constexpr int   PickupHealthPerFloor = 3;
+    constexpr int   PickupManaPerFloor   = 2;
+    constexpr int   PickupBuffPerFloor   = 1;
+
+    constexpr int   PickupHealthAmount = 30;    // Flat heal
+    constexpr int   PickupManaAmount   = 15;    // Flat mana
+
+    // How long a Buff pickup's grant lasts. One figure for all four rows of the
+    // table rather than one each - what varies between them is what they DO,
+    // not how long a duty cycle is worth running.
+    constexpr float BuffDuration = 25.0f;
+
+    // How close the player's feet have to be to take one - generous, the same
+    // reasoning as Loot's own TakeRadius.
+    constexpr float PickupTakeRadius = 1.1f;
+
+    constexpr float PickupPropScale  = 1.0f;
+    constexpr float PickupRestHeight = 0.5f;
+    constexpr float PickupBobHeight  = 0.10f;
+    constexpr float PickupBobRate    = 2.2f;
+    constexpr float PickupSpinRate   = 1.6f;
+
+    // The soft light every pickup stands in, and the bigger one a Buff pickup
+    // gets on top of it - see the note on PickupManager::Draw for why a food
+    // prop borrowed for a buff needs the second signal and a potion bottle
+    // does not.
+    constexpr float PickupAuraCore     = 0.16f;
+    constexpr float PickupAuraHalo     = 0.55f;
+    constexpr float PickupAuraBuffCore = 0.22f;
+    constexpr float PickupAuraBuffHalo = 0.80f;
+
+    // The same idiom on a currency drop worth more than an ordinary coin - see
+    // the note on LootManager::Draw. Smaller than a Buff's own aura: a gem is a
+    // nice find, not the loudest thing in the room.
+    constexpr float LootAuraCore = 0.14f;
+    constexpr float LootAuraHalo = 0.45f;
+
+    //--------------------------------------------------------------------------
     // Limited stock.
     //
     // Each vendor's UNOWNED list is rerolled to a small offered subset every
@@ -786,6 +850,17 @@ namespace Config
     // against, which means it must not be interesting.
     constexpr char  StartingWeapon[]    = "sword";
     constexpr int   StartingMagic       = 0;        // Magic::Flame
+
+    //--------------------------------------------------------------------------
+    // Owned from the first floor, but not held in a hand at spawn - a run does
+    // not have to find the merchant to learn it owns a shield, or to learn it
+    // owns something that can cast. Neither is equipped: the wheel is how a
+    // player reaches them, the same as anything bought later, and a shield
+    // shoved into the off hand before the player has chosen one is a choice
+    // made for them rather than a kit handed to them.
+    //--------------------------------------------------------------------------
+    constexpr char  StartingShield[]    = "shield";
+    constexpr char  StartingStaff[]     = "staff";
 
     //--------------------------------------------------------------------------
     // What the dead pay, in the three currencies

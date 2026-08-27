@@ -113,6 +113,19 @@ void Enemy::Stun(float seconds)
     if (seconds > stunTime) stunTime = seconds;
 }
 
+void Enemy::Stagger(float seconds)
+{
+    if (!IsAlive()) return;
+
+    // A parry earns the flinch outright - the poise gate that keeps a champion
+    // on its feet through ordinary damage does not apply to a blow that never
+    // landed at all.
+    PlayAnim(EnemyAnim::Hit, PickVariant(Config::EnemyHitVariants));
+    blocking = false;   // A guard is a decision too - see Stun's own note
+
+    Stun(seconds);
+}
+
 void Enemy::Shove(Vector3 direction, float speed)
 {
     if (!IsAlive() || (speed <= 0.0f)) return;

@@ -1,5 +1,6 @@
 #include "ui/Hud.h"
 
+#include "combat/Buff.h"
 #include "core/Config.h"
 #include "entities/Player.h"
 #include "raymath.h"
@@ -393,6 +394,26 @@ void Hud::DrawLeftColumn(const Player &player, const Level &level, Magic magic,
         UiLabel(TextFormat("%d mana", cost),
                 left + count*step + 16.0f*ui + UiTextWidth(named, label),
                 cy - label*0.5f, label, (player.mana >= cost) ? ManaFill : Dim);
+    }
+
+    //------------------------------------------------------------------------------
+    // The running buff, under the schools - see Player::ApplyBuff and world/
+    // Pickup.h. Only while one is actually running, the same rule the event
+    // brief and the champion bars already follow: a slot that is empty most of
+    // the time is one the player stops looking at.
+    //
+    // In the buff's own colour, the same idiom the trait slots and the magic
+    // discs already use - so "what is this doing to me" is answered by the
+    // colour before the player has read a word of it.
+    //------------------------------------------------------------------------------
+    if (player.HasBuff())
+    {
+        const BuffDef &def = BuffAt(player.ActiveBuff());
+
+        const float buffY = cy + radius + 6.0f*ui;
+
+        UiLabel(TextFormat("%s   %.0fs", def.name, player.BuffTimeLeft()),
+                left, buffY, label, def.colour);
     }
 }
 

@@ -18,6 +18,9 @@ void Player::Spawn(Vector3 position)
     yaw = 0.0f;
 
     for (AttackState &attack : attacks) attack.Reset();
+
+    blockCooldown = 0.0f;
+    blockActiveTime = 0.0f;
 }
 
 void Player::ResetCharacter()
@@ -43,15 +46,93 @@ void Player::Update(float delta, const InputState &input, float lookYaw)
     body.Update(delta, yaw, input.move, input.jump, input.crouch);
 
     lastHitAge += delta;
+
+    //------------------------------------------------------------------------------
+    // The running buff's clock, if there is one.
+    //
+    // Cleared outright the frame it reaches zero rather than left at a spent
+    // Modifiers checked against HasBuff, so Combined() never has to ask - a
+    // buffMods sitting there at its old values with buffTimeLeft at exactly 0.0
+    // is one float comparison away from being summed in for one more frame than
+    // it should be.
+    //------------------------------------------------------------------------------
+    if (buffTimeLeft > 0.0f)
+    {
+        buffTimeLeft -= delta;
+
+        if (buffTimeLeft <= 0.0f)
+        {
+            buffTimeLeft = 0.0f;
+            buffMods = Modifiers{};
+
+            RefreshHealth();
+            if (mana > MaxMana()) mana = MaxMana();
+        }
+    }
 }
 
-void Player::UpdateAttacks(float delta, const bool pressed[2], const bool held[2], const AttackStyle newStyles[2])
+void Player::UpdateAttacks(float delta, const bool pressedIn[2], const bool heldIn[2], const AttackStyle newStyles[2])
 {
+    bool pressed[HandCount];
+    bool held[HandCount];
+
     for (int h = 0; h < HandCount; h++)
     {
         styles[h] = newStyles[h];
+        pressed[h] = pressedIn[h];
+        held[h] = heldIn[h];
+    }
+
+    if (blockCooldown > 0.0f)
+    {
+        blockCooldown -= delta;
+        if (blockCooldown < 0.0f) blockCooldown = 0.0f;
+    }
+
+    const int off = (int)Hand::Left;
+    const int main = (int)Hand::Right;
+
+    if (styles[off] == AttackStyle::Block)
+    {
+        // Still recovering from the last one - a fresh press does not raise it
+        // early. Only checked at rest: a shield already on its way down finishes
+        // that motion on its own rather than being yanked back up mid-drop.
+        if ((blockCooldown > 0.0f) && (attacks[off].phase == AttackState::Phase::Idle))
+        {
+            pressed[off] = false;
+        }
+
+        // A shield that is up, raising or lowering is both hands' business - no
+        // swinging while it is out. See TakeDamageFrom for the other half: the
+        // shield forcing itself back down the instant it actually stops a blow.
+        if (attacks[off].phase != AttackState::Phase::Idle)
+        {
+            pressed[main] = false;
+            held[main] = false;
+        }
+    }
+
+    for (int h = 0; h < HandCount; h++)
+    {
         attacks[h].Update(delta, pressed[h], held[h], styles[h]);
     }
+
+    if ((styles[off] == AttackStyle::Block) && IsBlocking()) blockActiveTime += delta;
+    else blockActiveTime = 0.0f;
+}
+
+void Player::DropBlock()
+{
+    const int off = (int)Hand::Left;
+
+    if (attacks[off].phase != AttackState::Phase::Idle)
+    {
+        attacks[off].phase = AttackState::Phase::Back;
+        attacks[off].timer = 0.0f;
+    }
+
+    blockCooldown = Config::BlockRecoveryTime;
+    blockActiveTime = 0.0f;
 }
 
 Vector3 Player::EyePosition() const
@@ -78,6 +159,16 @@ void Player::TakeDamage(int amount)
 {
     if (amount <= 0) return;
 
+    // What a shield is actually worth now - see the long note at the top of
+    // combat/Modifiers.h on why this is a fraction read off Combined() rather
+    // than a stat point that used to just inflate the health pool. Floored at
+    // 1 the same way a landed blow always is elsewhere (see ResolveDamage) -
+    // a hit that connects and does nothing reads as the game dropping it.
+    const float scale = 1.0f + Combined().damageTaken;
+
+    amount = (int)(amount*((scale > 0.0f) ? scale : 0.0f) + 0.5f);
+    if (amount < 1) amount = 1;
+
     const int before = health;
 
     health -= amount;
@@ -91,14 +182,27 @@ void Player::TakeDamage(int amount)
     }
 }
 
-void Player::TakeDamageFrom(int amount, Vector3 source)
+bool Player::TakeDamageFrom(int amount, Vector3 source, bool melee)
 {
     // A raised shield only covers what it is pointed at. Reach is irrelevant
     // here - InCone is being used purely for the angle.
-    if (IsBlocking() && InCone(EyePosition(), Forward(), source, 1000.0f, Config::BlockArc))
+    const bool guarded = IsBlocking() && InCone(EyePosition(), Forward(), source, 1000.0f, Config::BlockArc);
+
+    bool parried = false;
+
+    if (guarded)
     {
-        amount = (int)(amount*Config::BlockDamageScale);
-        if (amount < 1) amount = 1;
+        // A parry is a melee blow caught in the instant the shield went up, not
+        // one caught after a wait - see the note on blockActiveTime. A shield
+        // raised early and held still stops the blow, just not for free.
+        parried = melee && (blockActiveTime <= Config::ParryWindow);
+
+        amount = parried ? 0 : (int)(amount*Config::BlockDamageScale);
+        if (!parried && (amount < 1)) amount = 1;
+
+        // Whatever it stopped, the shield has done its one job for now - see
+        // the note on blockCooldown.
+        DropBlock();
     }
 
     const int before = health;
@@ -112,6 +216,8 @@ void Player::TakeDamageFrom(int amount, Vector3 source)
         lastHitFrom = source;
         lastHitDirectional = true;
     }
+
+    return parried;
 }
 
 void Player::Heal(int amount)
@@ -122,26 +228,51 @@ void Player::Heal(int amount)
     if (health > maxHealth) health = maxHealth;
 }
 
+void Player::GiveMana(int amount)
+{
+    if (amount <= 0) return;
+
+    mana += amount;
+    if (mana > MaxMana()) mana = MaxMana();
+}
+
+void Player::ApplyBuff(BuffKind kind)
+{
+    activeBuff = kind;
+    buffMods = BuffAt(kind).mods;
+    buffTimeLeft = Config::BuffDuration;
+
+    // Felt on the frame it lands, the same rule SetModifiers follows for a
+    // trait - see the note there.
+    RefreshHealth();
+
+    if (mana > MaxMana()) mana = MaxMana();
+}
+
 //----------------------------------------------------------------------------------
-// The line the fight actually uses: what was spent, what is held, and what has been
-// learned.
+// The line the fight actually uses: what was spent, with the trait loadout's own
+// point bonuses and conversions applied on top.
 //
-// Three sources and one answer. The held bonus and the modifiers are both OFFSETS -
-// adding two stat lines would make a character holding two neutral weapons a
-// character of 30 in everything - and the conversions in ApplyModifiers run LAST, on
-// the total, so "30% of arcane" reads the arcane the character ended up with rather
-// than the arcane they spent points on.
+// Held gear no longer reaches this function - see the note on SetGearMods. It
+// works through Combined() instead, read directly by whatever it actually
+// changes, so a weapon in the hand can never inflate the STAT line the way a
+// shield's old constitution point used to inflate the health pool it was
+// silently derived from.
 //----------------------------------------------------------------------------------
 StatBlock Player::Fighting() const
 {
-    StatBlock fighting = stats;
+    return ApplyModifiers(stats, mods);
+}
 
-    fighting.con  += heldBonus.con;
-    fighting.arms += heldBonus.arms;
-    fighting.skl  += heldBonus.skl;
-    fighting.arc  += heldBonus.arc;
-
-    return ApplyModifiers(fighting, mods);
+//----------------------------------------------------------------------------------
+// What combat actually reads - see the class note on ApplyBuff. Built fresh
+// rather than cached: `mods`, `buffMods` and `gearMods` change on different
+// clocks (an equip, a tick of a timer, a weapon swap) and a cached sum is a
+// fourth value that can fall out of step with any of them.
+//----------------------------------------------------------------------------------
+Modifiers Player::Combined() const
+{
+    return ModifiersAdd(ModifiersAdd(mods, buffMods), gearMods);
 }
 
 void Player::SetModifiers(const Modifiers &bonus)
@@ -151,22 +282,27 @@ void Player::SetModifiers(const Modifiers &bonus)
     // The same rule a spent point follows: the pool grows and the health in it grows
     // with it, so a trait granting constitution is felt on the frame it goes on.
     // Unlike a held weapon this is a permanent choice, so it carries UP rather than
-    // being clamped - see the note on SetHeldBonus for why the two differ.
+    // being clamped - see the note on SetGearMods for why the two differ.
     RefreshHealth();
 
     if (mana > MaxMana()) mana = MaxMana();
 }
 
-void Player::SetHeldBonus(const StatBlock &bonus)
+void Player::SetGearMods(const Modifiers &bonus)
 {
-    heldBonus = bonus;
+    gearMods = bonus;
 
-    // Clamped down, never carried up - see the note on SetHeldBonus. Putting the
-    // shield away shortens the bar; picking it up lengthens it and leaves the
-    // health where it was, which is the only version of this that a player cannot
-    // farm by cycling the mouse wheel.
+    // Clamped down, never carried up - see the note on SetGearMods. Deliberately
+    // NOT RefreshHealth, which does the opposite for a trait on purpose: a
+    // trait is a permanent choice and its constitution should carry the current
+    // health up with it, where gear is put down again a moment later and must
+    // not be a heal with a cooldown of one frame. Nothing on today's table
+    // grants flatHealth from a weapon, but the rule is written here rather than
+    // assumed.
     maxHealth = MaxHealth();
     if (health > maxHealth) health = maxHealth;
+
+    if (mana > MaxMana()) mana = MaxMana();
 }
 
 int Player::MaxHealth() const
@@ -175,7 +311,7 @@ int Player::MaxHealth() const
 
     const int total = Config::PlayerMaxHealth
                     + StatBonusHealth(fighting, Config::PlayerMaxHealth)
-                    + mods.flatHealth;
+                    + Combined().flatHealth;
 
     // A character can be built down as well as up - an enemy kind's line goes below
     // neutral and nothing stops a debug spend from doing the same - and a pool of
@@ -207,21 +343,30 @@ void Player::RefreshHealth()
 int Player::SpellPower() const
 {
     const StatBlock fighting = Fighting();
+    const Modifiers combined = Combined();
 
     int total = Config::BaseSpellPower
               + StatBonusSpellPower(fighting, Config::BaseSpellPower)
-              + mods.flatSpell;
+              + combined.flatSpell;
 
     // A fraction on top of what arcane already bought, added rather than compounded -
     // the same rule every other modifier fraction follows
-    if (mods.spellPower != 0.0f) total = (int)(total*(1.0f + mods.spellPower) + 0.5f);
+    if (combined.spellPower != 0.0f) total = (int)(total*(1.0f + combined.spellPower) + 0.5f);
 
     return (total < 1) ? 1 : total;
 }
 
 int Player::WeaponDamage(int weaponDamage) const
 {
-    return WeaponDamageWith(Fighting(), weaponDamage) + mods.flatDamage;
+    const Modifiers combined = Combined();
+
+    int total = WeaponDamageWith(Fighting(), weaponDamage) + combined.flatDamage;
+
+    // The melee/ranged counterpart of SpellPower's own fraction, added rather
+    // than compounded - the same rule every other modifier fraction follows.
+    if (combined.damageDealt != 0.0f) total = (int)(total*(1.0f + combined.damageDealt) + 0.5f);
+
+    return (total < 1) ? 1 : total;
 }
 
 //----------------------------------------------------------------------------------
@@ -238,7 +383,7 @@ int Player::MaxMana() const
     const int over = fighting.arc - Config::StatBase;
 
     const int total = Config::ManaMax + (int)(over*Config::ManaPerArcane + 0.5f)
-                    + mods.flatMana;
+                    + Combined().flatMana;
 
     return (total < 1) ? 1 : total;
 }
@@ -257,7 +402,7 @@ void Player::CreditWeaponKills(int kills)
 {
     if (kills <= 0) return;
 
-    mana += kills*(Config::ManaPerKill + mods.manaPerKill);
+    mana += kills*(Config::ManaPerKill + Combined().manaPerKill);
 
     if (mana > MaxMana()) mana = MaxMana();
 }
@@ -278,7 +423,7 @@ void Player::CreditSpellKills(int kills)
 
     spellKillCarry -= whole*per;
 
-    mana += whole*(Config::ManaPerKill + mods.manaPerKill);
+    mana += whole*(Config::ManaPerKill + Combined().manaPerKill);
 
     if (mana > MaxMana()) mana = MaxMana();
 }

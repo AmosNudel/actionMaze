@@ -51,3 +51,16 @@ Texture2D &GlowTexture(AssetManager &assets)
 
     return texture;
 }
+
+void DrawAura(const Camera3D &camera, Texture2D &glow, Vector3 at, float floorY,
+             Color colour, float coreSize, float haloSize, float pulsePhase)
+{
+    const float pulse = 1.0f + 0.12f*sinf(pulsePhase);
+
+    DrawBillboard(camera, glow, at, haloSize, Fade(colour, 0.30f));
+    DrawBillboard(camera, glow, at, coreSize*pulse, colour);
+
+    const Vector3 floorAt = { at.x, floorY + 0.02f, at.z };
+
+    DrawBillboard(camera, glow, floorAt, haloSize*0.9f, Fade(colour, 0.16f));
+}
