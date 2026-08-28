@@ -51,20 +51,6 @@ struct MagicDef
     float speed;            // World units a second in flight
 
     //------------------------------------------------------------------------------
-    // Every OTHER living enemy within this of the impact point takes the same
-    // blow - and the same effect (see Enemy::ApplyMagicEffect) - the mote's real
-    // target did. Applied in ProjectileManager::Advance, the same place NOVA's
-    // own burst always was; every school gets one now instead of just that one.
-    //
-    // Still set against each other rather than to one shared number: NOVA stays
-    // the widest because "the one real area of effect" is still its whole
-    // identity, and FLASH/SPARK stay tight because a school that is fast and
-    // small in every other column reading as fast and small here too is the
-    // point, not an oversight.
-    //------------------------------------------------------------------------------
-    float aoeRadius;
-
-    //------------------------------------------------------------------------------
     // Multiple of the caster's SPELL POWER, not a damage figure.
     //
     // Spell power is arcane and only arcane (see Player::SpellPower), and that is
@@ -80,6 +66,27 @@ struct MagicDef
     // ones worth less per hit than the slow ones.
     //------------------------------------------------------------------------------
     float damageMult;
+
+    //------------------------------------------------------------------------------
+    // Every OTHER living enemy within this of the impact point takes the same
+    // blow - and the same effect (see Enemy::ApplyMagicEffect) - the mote's real
+    // target did. Applied in ProjectileManager::Advance, the same place NOVA's
+    // own burst always was; every school gets one now instead of just that one.
+    //
+    // Still set against each other rather than to one shared number: NOVA stays
+    // the widest because "the one real area of effect" is still its whole
+    // identity, and FLASH/SPARK stay tight because a school that is fast and
+    // small in every other column reading as fast and small here too is the
+    // point, not an oversight.
+    //
+    // Declared AFTER damageMult on purpose - it must stay last, matching the
+    // table's own trailing column, or every positional initializer in it shifts
+    // by one field silently. That is exactly the bug that shipped the first time
+    // this was added ahead of damageMult instead: no compile error, just every
+    // school's cost and damage reading its aoeRadius and its aoeRadius reading
+    // its damageMult.
+    //------------------------------------------------------------------------------
+    float aoeRadius;
 };
 
 // The table, by index. `Count` entries, in enum order.

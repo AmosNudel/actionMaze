@@ -15,23 +15,9 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
-#include <cstring>
 
 namespace
 {
-    //------------------------------------------------------------------------------
-    // Whether a melee land-fraction has to read Config::EnemySliceMeleeLand
-    // instead of the shared Config::EnemyMeleeLand - see the note there. A
-    // slice's arm sweeps through its arc early and follows through for the
-    // rest of the clip doing nothing, where a chop's weapon is still closing
-    // on the target for most of it, so the two need different fractions and
-    // the clip's own name is what tells them apart.
-    //------------------------------------------------------------------------------
-    bool IsSliceClip(const char *name)
-    {
-        return (name != nullptr) && (strstr(name, "slice") != nullptr);
-    }
-
     //------------------------------------------------------------------------------
     // The grip for one prop, by path.
     //
@@ -808,13 +794,9 @@ void EnemyManager::UpdateRaider(Enemy &enemy, float delta, Level &level)
     {
         const LoadedType &loaded = TypeOf(enemy);
         const int clip = ClipFor(loaded, EnemyAnim::Attack, enemy.animVariant);
-
-        // A slice reads differently to a chop - see the note on IsSliceClip
-        // and on Config::EnemySliceMeleeLand.
-        const bool slice = IsSliceClip(SpecOf(enemy).attackClips[enemy.animVariant]);
-        const float fraction = slice ? Config::EnemySliceMeleeLand : Config::EnemyMeleeLand;
-
-        const float land = (clip >= 0) ? loaded.model.ClipDuration(clip)*fraction : 0.0f;
+        const float land = (clip >= 0)
+                         ? loaded.model.ClipDuration(clip)*Config::EnemyRaidHitFraction
+                         : 0.0f;
 
         if (enemy.animTime >= land)
         {
@@ -1902,11 +1884,11 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
                 }
                 else
                 {
-                    // Nothing happens yet. The blow lands partway through the
-                    // clip, once the weapon is actually coming down - see
-                    // LandMelee and Config::EnemyMeleeLand. It used to resolve
-                    // on the frame the swing STARTED, which damaged the player
-                    // before the axe had begun to move.
+                    // Nothing happens yet. The blow lands once the actual
+                    // blade sweeps into the player - see LandMelee and
+                    // EnemyManager::BladeFor. It used to resolve on the frame
+                    // the swing STARTED, which damaged the player before the
+                    // axe had begun to move.
                     enemy.PlayAnim(EnemyAnim::Attack, swing);
                     enemy.meleePending = true;
                 }
@@ -2041,27 +2023,56 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
         }
 
         //--------------------------------------------------------------------------
-        // ...and the melee blow lands the same way.
+        // ...and the melee blow, swept as an actual blade against the player -
+        // see BladeFor - across the live window (Config::EnemyMeleeLiveFrom/
+        // LiveTo) rather than resolved at one guessed instant.
         //
         // Outside the awareness test for the same reason the arrow is: a swing that
         // has started is committed, so breaking line of sight makes an enemy WASTE
         // a swing rather than cancel one. What it does not survive is the player
-        // stepping out of it - LandMelee re-tests reach and facing, and a swing that
-        // no longer reaches simply misses.
+        // stepping out of it - the two capsules simply stop touching, which is what
+        // makes that work now instead of a re-tested cone approximating it.
         //--------------------------------------------------------------------------
         if (enemy.meleePending && (enemy.anim == EnemyAnim::Attack))
         {
             const LoadedType &loaded = TypeOf(enemy);
             const int clip = ClipFor(loaded, EnemyAnim::Attack, enemy.animVariant);
+            const float duration = (clip >= 0) ? loaded.model.ClipDuration(clip) : 0.0f;
+            const float t = (duration > 0.0f) ? (enemy.animTime/duration) : 1.0f;
 
-            // A slice reads differently to a chop - see the note on
-            // IsSliceClip and on Config::EnemySliceMeleeLand.
-            const bool slice = IsSliceClip(SpecOf(enemy).attackClips[enemy.animVariant]);
-            const float fraction = slice ? Config::EnemySliceMeleeLand : Config::EnemyMeleeLand;
+            if (t > Config::EnemyMeleeLiveTo)
+            {
+                // The window closed without a hit - a swing spent, same as a
+                // miss has always been: it does not get to keep trying for the
+                // rest of the clip.
+                enemy.meleePending = false;
+                enemy.bladeLive = false;
+            }
+            else if (t >= Config::EnemyMeleeLiveFrom)
+            {
+                const Capsule blade = BladeFor(enemy);
+                const Capsule from = enemy.bladeLive ? enemy.lastBlade : blade;
 
-            const float land = (clip >= 0) ? loaded.model.ClipDuration(clip)*fraction : 0.0f;
+                const Capsule body = BodyCapsule(player.body.position,
+                                                 Config::PlayerEyeHeight, player.body.radius);
 
-            if (enemy.animTime >= land) LandMelee(enemy, player);
+                if (SweptCapsuleHits(from, blade, body, Config::MeleeSweepSteps))
+                {
+                    LandMelee(enemy, player);
+                    enemy.bladeLive = false;
+                }
+                else
+                {
+                    enemy.lastBlade = blade;
+                    enemy.bladeLive = true;
+                }
+            }
+        }
+        else
+        {
+            // Not mid-swing - the next one starts fresh rather than sweeping
+            // in from wherever this one last left the blade.
+            enemy.bladeLive = false;
         }
 
         // Guard up between swings: close enough to be worth guarding against,
@@ -2252,6 +2263,65 @@ Vector3 EnemyManager::PropMuzzle(const Enemy &enemy, int slot) const
 }
 
 //----------------------------------------------------------------------------------
+// The weapon hand's blade, as an actual capsule in the world - from the grip out
+// to the archetype's own reach - so a melee blow can be tested against the
+// player the same way the player's own blows are tested against enemies,
+// instead of guessed from a fraction of the clip's length.
+//
+// The same three transforms PropMuzzle composes, and not shared with it for the
+// same reason DrawProps does not share them either: each caller has its own
+// frequency, and this one runs once a frame per attacking enemy rather than
+// once per shot or once per drawn prop.
+//
+// Falls back to a capsule running straight out from the body's own centre along
+// its facing when there is no pose to swing from - an unposed type, a
+// stripped-down asset folder - which is the same shape the old approximate
+// reach check always assumed, so a build with no props still has something to
+// hit with.
+//----------------------------------------------------------------------------------
+Capsule EnemyManager::BladeFor(const Enemy &enemy) const
+{
+    const Config::EnemyArchetype &spec = SpecOf(enemy);
+    const LoadedType &loaded = TypeOf(enemy);
+
+    const int slot = 0; // The weapon hand - see Config::EnemyPropSlots
+
+    const bool posed = loaded.ready && !enemy.bones.empty()
+                     && (loaded.props[slot].bone >= 0);
+
+    if (!posed)
+    {
+        const Vector3 c = enemy.Center();
+
+        return { c, Vector3Add(c, Vector3Scale(enemy.Forward(), spec.attackRange)),
+                Config::EnemyBladeRadius };
+    }
+
+    const LoadedType::HeldProp &prop = loaded.props[slot];
+    const Matrix bone = loaded.model.BoneTransform(prop.bone, enemy.bones.data());
+
+    const float facing = enemy.yaw + Config::EnemyModelYaw*DEG2RAD;
+    const Matrix placement =
+        MatrixMultiply(MatrixMultiply(MatrixScale(loaded.scale, loaded.scale, loaded.scale),
+                                      MatrixRotateY(facing)),
+                       MatrixTranslate(enemy.body.position.x, enemy.body.position.y, enemy.body.position.z));
+
+    const Matrix at = MatrixMultiply(MatrixMultiply(prop.grip, bone), placement);
+
+    const Vector3 grip = { at.m12, at.m13, at.m14 };
+
+    // Local +Y in world space, after the grip's own correction - "out of the
+    // fist" by the pack's convention for every prop, weapon or shield, whether
+    // or not that particular one needed straightening out to reach it. See the
+    // note on GripFor.
+    const Vector3 axis = Vector3Normalize({ at.m4, at.m5, at.m6 });
+
+    const Vector3 tip = Vector3Add(grip, Vector3Scale(axis, spec.attackRange));
+
+    return { grip, tip, Config::EnemyBladeRadius };
+}
+
+//----------------------------------------------------------------------------------
 // The arrow leaves.
 //
 // Aimed at the player's eye from wherever the crossbow currently is, which means
@@ -2260,44 +2330,17 @@ Vector3 EnemyManager::PropMuzzle(const Enemy &enemy, int slot) const
 // standing still is what gets you hit.
 //
 //----------------------------------------------------------------------------------
-// One blow per Attack state, guarded by meleePending.
-//
-// The threshold is a point in the CLIP rather than a moment in time, so a slow chop
-// and a quick jab each connect at the right point in their own arc - and the flag is
-// what keeps every frame past that point from landing the blow again. The same shape
-// as ReleaseShot below, deliberately: they are the same event seen through two
-// different weapons.
-//
-// Reach and facing are re-tested HERE and not trusted from the frame the swing
-// started. That is the entire fix: a wind-up the player cannot step out of is not a
-// wind-up, it is a delay before an unavoidable hit.
-//
-// The blow is cleared either way. A swing that missed is a swing spent - it does not
-// get to keep trying for the rest of its clip, which would turn a miss into a hit the
-// moment the player walked back into range.
+// One blow per Attack state, guarded by meleePending, called the moment the
+// swept blade capsule (see BladeFor) actually touches the player - not on a
+// timer, so reach and facing need no separate re-test here any more: the
+// capsule the player is standing in front of, or is not, already answers both.
+// A player who has stepped out of the swing makes it miss because the two
+// shapes simply stop overlapping, which is a strictly more honest version of
+// the cone this used to re-test.
 //----------------------------------------------------------------------------------
 void EnemyManager::LandMelee(Enemy &enemy, Player &player)
 {
     enemy.meleePending = false;
-
-    const Config::EnemyArchetype &spec = SpecOf(enemy);
-
-    const Vector3 target = player.EyePosition();
-
-    const Vector3 away = Vector3Subtract(target, enemy.Center());
-    const float distance = sqrtf(away.x*away.x + away.z*away.z);
-
-    // Past its reach by the time the weapon came down. The slack is what a weapon's
-    // length past the body's stop distance is worth - see the note on the constant.
-    if (distance > (spec.attackRange + Config::EnemyMeleeLandSlack)) return;
-
-    // ...or no longer in front of it. The body is pinned for the whole clip, so a
-    // player who has walked round it is behind the arc rather than in it.
-    if (!InCone(enemy.Center(), enemy.Forward(), target,
-                spec.attackRange + Config::EnemyMeleeLandSlack, Config::EnemyMeleeLandArc))
-    {
-        return;
-    }
 
     //------------------------------------------------------------------------------
     // Through the same funnel the player's own blows go through, so an enemy's crit

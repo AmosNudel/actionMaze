@@ -463,6 +463,15 @@ private:
     // Puts an arrow in the air, partway through the shoot clip
     void ReleaseShot(Enemy &enemy, const Player &player, ProjectileManager &projectiles) const;
 
+    //------------------------------------------------------------------------------
+    // The weapon hand's blade, swept from the grip out to the archetype's own
+    // attackRange - the real shape a melee blow is tested against, in place of
+    // the fraction-of-clip guess that used to stand in for it. See the note on
+    // the definition, and Config::EnemyMeleeLiveFrom/LiveTo for the window it is
+    // read within.
+    //------------------------------------------------------------------------------
+    Capsule BladeFor(const Enemy &enemy) const;
+
     std::vector<Enemy> enemies;
     // Never reused, never reset by RemoveDead: an id that came back round would let
     // a swing that already cut a dead enemy refuse to cut the one that replaced it

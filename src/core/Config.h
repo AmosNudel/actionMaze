@@ -1960,45 +1960,42 @@ namespace Config
     constexpr float EnemyShootRelease   = 0.45f;
 
     //--------------------------------------------------------------------------
-    // Where in a melee clip the blow actually lands.
+    // Where in a melee clip the blow can land.
     //
-    // The same idea as EnemyShootRelease and it exists for the same reason: a
-    // blow used to resolve on the frame the swing STARTED, which meant an enemy
-    // damaged the player before the weapon had begun to move. It read as being
-    // hit by an intention rather than by an axe, and it made the wind-up - the
-    // one part of an attack a player is supposed to answer - decoration.
+    // A WINDOW now, not a single instant: the blow is resolved by an actual
+    // swept capsule against the player's actual body (see
+    // EnemyManager::BladeFor), not guessed from the clip's own timing. That is
+    // what makes one shared window safe across every archetype's every clip,
+    // chop or slice, heavy or quick - it only has to bracket where contact
+    // happens, not predict the exact frame, because the sweep finds the exact
+    // frame on its own. The old version could not do this: a single instant
+    // that read right on a chop (whose weapon is still closing on the target
+    // for most of the clip) landed on a slice's follow-through instead, well
+    // after its arm had already crossed the body, and no one fraction fit both
+    // shapes.
     //
-    // 0.55 rather than the shot's 0.45: a bow is loosed early in its clip and a
-    // swing connects past the middle of its arc. Both are fractions of the clip
-    // rather than seconds, so a slow chop and a quick jab each land at the right
-    // moment in their own animation.
-    //
-    // "each" turned out to overstate it: a CHOP's weapon is still closing on the
-    // target for most of the clip, so 0.55 reads right on one, but a SLICE's arm
-    // sweeps through its arc early and then follows through for the rest of the
-    // clip doing nothing - at the same 0.55 the hit lands on the follow-through,
-    // well after the blade actually crossed the body. One flat fraction cannot
-    // fit both shapes, so EnemyManager checks the clip's own name for "slice"
-    // and reads EnemySliceMeleeLand instead when it finds it, rather than this
-    // needing a per-archetype table of its own for what is really one shape of
-    // swing against another.
-    constexpr float EnemyMeleeLand      = 0.55f;
-    constexpr float EnemySliceMeleeLand = 0.40f;
+    // Wide on purpose, for the same reason it was always generous: too tight
+    // and a slow wind-up's real swing never falls inside it at all. Stepping
+    // out of a swing still works, and works better than before - the two
+    // capsules simply stop touching, rather than a re-tested cone approximating
+    // the same question.
+    constexpr float EnemyMeleeLiveFrom = 0.15f;
+    constexpr float EnemyMeleeLiveTo   = 0.95f;
 
-    //--------------------------------------------------------------------------
-    // What the blow still has to be true of when it lands.
-    //
-    // Re-tested at the landing frame rather than trusted from the frame the swing
-    // began, which is the whole point of the change: stepping out of a swing has
-    // to be able to make it miss, or the wind-up is still decoration.
-    //
-    // Both are generous on purpose. The enemy is pinned in place for the whole
-    // clip while the player is free to move, so a tight window would make every
-    // melee archetype trivially kiteable - which is a different broken fight, not
-    // a fixed one. The slack is what a weapon's reach past the body's own stop
-    // distance is worth, and the arc is a swing rather than a thrust.
-    constexpr float EnemyMeleeLandSlack = 0.9f;     // World units past attackRange
-    constexpr float EnemyMeleeLandArc   = 150.0f;   // Degrees, centred on the facing
+    // The blade capsule's own thickness - see EnemyManager::BladeFor. Its length
+    // is the archetype's own attackRange; this is just how fat a miss is still a
+    // near miss. Swept in Config::MeleeSweepSteps samples between last frame's
+    // pose and this one, the same constant and the same reason the player's own
+    // blade already uses it - see Collider.h's SweptCapsuleHits.
+    constexpr float EnemyBladeRadius = 0.16f;
+
+    // A raider's blow against the DEFEND relic, which cannot step out of the
+    // way and so has nothing for a swept capsule to prove - a flat fraction of
+    // the clip is all that timing needs. Kept as the old shared instant rather
+    // than moved onto the new window, which is a player-facing distinction this
+    // path has no use for.
+    constexpr float EnemyRaidHitFraction = 0.55f;
+
     // A ranged enemy backs off when the player closes inside this fraction of its
     // standoff, rather than standing there being hit
     constexpr float EnemyRangedRetreat  = 0.6f;

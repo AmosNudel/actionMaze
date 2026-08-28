@@ -1,5 +1,6 @@
 #pragma once
 
+#include "combat/Collider.h"
 #include "combat/MagicKind.h"
 #include "combat/StatBlock.h"
 #include "core/Config.h"
@@ -237,16 +238,30 @@ struct Enemy
     //
     // Exactly the same shape as `shotPending` above, and added for the same reason:
     // a swing that resolved on the frame it started dealt its damage before the
-    // weapon had moved. The blow now lands partway through the clip (see
-    // Config::EnemyMeleeLand), and this is what stops every frame past that point
-    // landing it again.
+    // weapon had moved. Cleared the instant the blade actually connects (see
+    // EnemyManager::BladeFor and Config::EnemyMeleeLiveFrom/LiveTo) or the live
+    // window closes without a hit - either way a swing only ever gets one chance
+    // to land.
     //
     // The blow is COMMITTED once it starts - it is outside the awareness test, like
-    // a loosed arrow - but it still has to be in reach and facing the right way when
-    // it lands. Those are re-tested at the landing frame, which is what makes
-    // stepping out of a swing work.
+    // a loosed arrow - but reach and facing are never approximated at all now: the
+    // blade is swept as an actual capsule against the player's actual body every
+    // live frame, so stepping out of a swing works because the two shapes simply
+    // stop touching, not because a re-tested cone said so.
     //------------------------------------------------------------------------------
     bool meleePending = false;
+
+    //------------------------------------------------------------------------------
+    // Last live frame's blade capsule, so this frame's can be swept against it -
+    // see EnemyManager::BladeFor. Only meaningful while `bladeLive` is true.
+    //------------------------------------------------------------------------------
+    Capsule lastBlade{};
+
+    // Whether `lastBlade` holds a real previous frame or is stale from an earlier
+    // swing (or never set at all). False on the first live frame of a swing, which
+    // is what tells the sweep to test a degenerate capsule (from == to) instead of
+    // dragging the blade in from wherever an unrelated swing last left it.
+    bool bladeLive = false;
 
     // Where the player was standing the last time this enemy actually saw them,
     // and how long it will keep acting on that. An enemy that forgets the instant
