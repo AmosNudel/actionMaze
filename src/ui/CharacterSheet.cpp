@@ -471,7 +471,7 @@ void CharacterSheet::Update(Player &player, const Arsenal &arsenal, const Spellb
             {
                 const int target = (viewModel.SlotIndex(Hand::Left) == id) ? -1 : id;
 
-                EquipWeapon(viewModel, arsenal, Hand::Left, target);
+                EquipWeapon(viewModel, arsenal, Hand::Left, target, player.CanOneHandTwoHanders());
 
                 return;
             }
@@ -481,7 +481,7 @@ void CharacterSheet::Update(Player &player, const Arsenal &arsenal, const Spellb
             {
                 const int target = (viewModel.SlotIndex(Hand::Right) == id) ? -1 : id;
 
-                EquipWeapon(viewModel, arsenal, Hand::Right, target);
+                EquipWeapon(viewModel, arsenal, Hand::Right, target, player.CanOneHandTwoHanders());
 
                 return;
             }
@@ -904,9 +904,9 @@ void CharacterSheet::DrawInventoryTab(const Layout &page, const Arsenal &arsenal
         UiRow(box, ls, false, UiAccent);
         DrawRectangleRec({ box.x, box.y, 4.0f*ls, box.height }, UiAccent);
 
-        // The weapon itself, turning, in place of its name - see
-        // render/WeaponPreview.h. The name is still what the row is keyed by; it
-        // is just a model to look up now rather than a string to print.
+        // The weapon itself, turning, beside its name - see render/WeaponPreview.h.
+        // What the row is KEYED by is still the model name; what is printed is the
+        // display name, which is a different column - see WeaponDisplayName.
         const float iconSize = box.height - 6.0f*ls;
         const Rectangle icon = { box.x + 8.0f*ls, box.y + 3.0f*ls, iconSize, iconSize };
 
@@ -916,9 +916,12 @@ void CharacterSheet::DrawInventoryTab(const Layout &page, const Arsenal &arsenal
 
         const std::string tagText = WeaponTagsText(arsenal.TagsAt(id));
 
+        UiLabel(WeaponDisplayName(arsenal.NameAt(id)), textLeft, box.y + 6.0f*ls,
+                SmallSize*ls, UiInk);
+
         UiLabel(TextFormat("dmg %i    reach %.1f    %s", arsenal.DamageAt(id),
                            arsenal.ReachAt(id), tagText.c_str()),
-                textLeft, box.y + (box.height - (SmallSize - 1.0f)*ls)*0.5f,
+                textLeft, box.y + (6.0f + SmallSize + 2.0f)*ls,
                 SmallSize*ls - 1.0f*ls, UiDim);
 
         const bool maxed = !arsenal.CanForge(id);

@@ -493,6 +493,51 @@ void Map::AssignKinds(std::mt19937 &rng)
         room.state = (stateChoice < 0) ? ChamberState::Pristine : (ChamberState)stateChoice;
     }
 
+    //------------------------------------------------------------------------------
+    // The stocked floor's Vault - see Config::StockedFirstFloor.
+    //
+    // Forced AFTER the weighted pass rather than woven into it, because the pass is
+    // a weighted roll per room and there is no clean way to say "and one of these,
+    // definitely" inside one. Reassigning a room afterwards is one loop and leaves
+    // the roll itself exactly as it was for every other floor.
+    //
+    // The room taken is one that FITS a Vault - it is a small kind (see its row in
+    // RoomKind.h) and a hall relabelled as one would be a warehouse with a chest in
+    // it. If no room on the map is the right size the floor simply has no chest,
+    // which is a map worth knowing about rather than one worth faking.
+    //------------------------------------------------------------------------------
+    if (stocked)
+    {
+        bool haveVault = false;
+
+        for (size_t i = 1; i < rooms.size(); i++)
+        {
+            if (rooms[i].kind == RoomKind::Vault) { haveVault = true; break; }
+        }
+
+        if (!haveVault)
+        {
+            const RoomKindSpec &spec = Rooms::Kinds[(int)RoomKind::Vault];
+
+            for (size_t i = 1; i < rooms.size(); i++)
+            {
+                if ((int)i == portalRoom) continue;
+
+                const int area = rooms[i].Area();
+
+                if ((area < spec.minArea) || (area > spec.maxArea)) continue;
+
+                rooms[i].kind = RoomKind::Vault;
+
+                // Pristine, so the dressing pass actually furnishes it - an Ashes or
+                // Stripped vault is a treasure room with nothing in it, and the
+                // chest is the whole reason this room was forced
+                rooms[i].state = ChamberState::Pristine;
+                break;
+            }
+        }
+    }
+
     ChooseEventRooms(rng, portalRoom);
     ChooseVendorRooms(rng, portalRoom);
 }
@@ -529,7 +574,36 @@ void Map::ChooseEventRooms(std::mt19937 &rng, int portalRoom)
         candidates.push_back(i);
     }
 
-    while (!candidates.empty() && ((int)eventRooms.size() < Config::EventCount))
+    //------------------------------------------------------------------------------
+    // The stocked floor prefers to keep its Vault free - see Config::StockedFirstFloor.
+    //
+    // Game::SeedRoomLoot skips any room that holds an event, a vendor or a camp, and
+    // the chest is seeded from inside that pass - so an objective landing in the one
+    // Vault silently costs the floor its chest. Four event rooms instead of two made
+    // that likely rather than rare.
+    //
+    // A PREFERENCE and not a rule: dropped again the moment removing it would leave
+    // too few rooms to place every kind. Events are the thing being guaranteed here
+    // and the chest has its own fallback in Game::SeedRoomLoot, so when the map is
+    // too small for both the events win.
+    //------------------------------------------------------------------------------
+    if (stocked)
+    {
+        std::vector<int> spared;
+
+        for (int i : candidates)
+        {
+            if (rooms[i].kind != RoomKind::Vault) spared.push_back(i);
+        }
+
+        if ((int)spared.size() >= Config::StockedEventCount) candidates = spared;
+    }
+
+    // One room per event KIND on the stocked floor, so every kind can be placed -
+    // see Config::StockedFirstFloor and EventManager::Place, which assigns them
+    const int wanted = stocked ? Config::StockedEventCount : Config::EventCount;
+
+    while (!candidates.empty() && ((int)eventRooms.size() < wanted))
     {
         int pick = 0;
 
@@ -608,7 +682,9 @@ void Map::ChooseVendorRooms(std::mt19937 &rng, int portalRoom)
     // How many this floor gets. One to three, flat - a weighted roll would make the
     // three-vendor floor a rarity the player learns to hope for, and this is meant to
     // be the ordinary texture of a floor rather than an event in itself.
-    const int wanted = 1 + (int)(rng()%(unsigned int)Config::VendorsPerFloorMax);
+    // All three on the stocked floor - see Config::StockedFirstFloor
+    const int wanted = stocked ? (int)NpcKind::Count
+                               : (1 + (int)(rng()%(unsigned int)Config::VendorsPerFloorMax));
 
     // Every vendor, shuffled, so which one a short floor gets is not always the
     // merchant. Small enough that a swap loop is the whole algorithm.
@@ -640,9 +716,62 @@ void Map::ChooseVendorRooms(std::mt19937 &rng, int portalRoom)
             if (std::find(eventRooms.begin(), eventRooms.end(), i) != eventRooms.end()) continue;
             if (std::find(vendorRooms.begin(), vendorRooms.end(), i) != vendorRooms.end()) continue;
 
+            // And not in the stocked floor's reserved Vault - see ChooseEventRooms
+            if (stocked && (rooms[i].kind == RoomKind::Vault)) continue;
+
             if (!NpcSuitsRoom(kind, (int)rooms[i].kind)) continue;
 
             candidates.push_back(i);
+        }
+
+        //--------------------------------------------------------------------------
+        // A stocked floor takes any free room rather than going without.
+        //
+        // "One of everything" has to mean it, and which rooms suit which vendor is a
+        // flavour rule (a mystic belongs in a library) that a map can simply fail to
+        // satisfy - there may be no library on it. On an ordinary floor going without
+        // is the right answer; on the floor that exists to have one of each it is the
+        // one thing that must not happen.
+        //--------------------------------------------------------------------------
+        if (stocked && candidates.empty())
+        {
+            // Any free room of the right size, suitable or not
+            for (int i = 1; i < (int)rooms.size(); i++)
+            {
+                if (i == portalRoom) continue;
+                if (rooms[i].Area() < Config::VendorRoomArea) continue;
+                if (stocked && (rooms[i].kind == RoomKind::Vault)) continue;
+
+                if (std::find(eventRooms.begin(), eventRooms.end(), i) != eventRooms.end()) continue;
+                if (std::find(vendorRooms.begin(), vendorRooms.end(), i) != vendorRooms.end()) continue;
+
+                candidates.push_back(i);
+            }
+        }
+
+        //--------------------------------------------------------------------------
+        // Last resort: share a room with an objective.
+        //
+        // A four-event floor eats most of the map's usable rooms, so on a small one
+        // there may be nothing left that is free at all - and "one of everything"
+        // has to mean it. The two do not actually conflict: FindOpenSpotIn places
+        // the vendor somewhere the furniture is not, and an event marker in the same
+        // room is one more thing standing in it.
+        //
+        // Still ordered last, so this only happens on the maps where it has to.
+        //--------------------------------------------------------------------------
+        if (stocked && candidates.empty())
+        {
+            for (int i = 1; i < (int)rooms.size(); i++)
+            {
+                if (i == portalRoom) continue;
+                if (rooms[i].Area() < Config::VendorRoomArea) continue;
+                if (rooms[i].kind == RoomKind::Vault) continue;
+
+                if (std::find(vendorRooms.begin(), vendorRooms.end(), i) != vendorRooms.end()) continue;
+
+                candidates.push_back(i);
+            }
         }
 
         if (candidates.empty()) continue;
@@ -688,8 +817,12 @@ void Map::ChooseVendorRooms(std::mt19937 &rng, int portalRoom)
 // is drawable, so a room touching the edge would want a wall on a line that has no
 // cell on its far side to anchor it.
 //----------------------------------------------------------------------------------
-void Map::Generate(unsigned int levelSeed)
+void Map::Generate(unsigned int levelSeed, int floorDepth)
 {
+    // One of everything on the first floor, for playtesting only - see
+    // Config::StockedFirstFloor and the passes that read Stocked() back
+    stocked = Config::StockedFirstFloor && (floorDepth <= 1);
+
     width = Config::MapWidth;
     depth = Config::MapDepth;
     seed = levelSeed;

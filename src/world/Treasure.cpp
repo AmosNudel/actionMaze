@@ -1,5 +1,6 @@
 #include "world/Treasure.h"
 
+#include "combat/Weapon.h"
 #include "core/Config.h"
 #include "progress/Arsenal.h"
 #include "render/AssetManager.h"
@@ -130,7 +131,12 @@ void TreasureManager::Open(Vector3 position, Arsenal &arsenal)
 
             arsenal.Give(pick);
 
-            lastFoundName = arsenal.NameAt(pick);
+            // The DISPLAY name, not the model name the arsenal keys on - see
+            // WeaponDisplayName. This line is read by a player, and "axe_B" is a
+            // filename. Safe to hold as a bare pointer: the table it comes back
+            // from is static, and the fallback for a weapon with no row is the
+            // arsenal's own string, which outlives the message either way.
+            lastFoundName = WeaponDisplayName(arsenal.NameAt(pick));
         }
         else
         {

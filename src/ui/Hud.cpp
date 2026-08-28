@@ -13,6 +13,8 @@
 #include "world/Level.h"
 #include "world/Loot.h"
 
+#include <string>
+
 namespace
 {
     //------------------------------------------------------------------------------
@@ -493,6 +495,35 @@ void Hud::DrawChampionBars(const EnemyManager &enemies, const Camera3D &camera) 
                                          Config::EnemyTypes[enemy.type].name),
                               screen.x, screen.y - label - bar - 4.0f*ui, label,
                               Fade(tint, alpha));
+
+        //--------------------------------------------------------------------------
+        // A bounty's two behaviours, over its name.
+        //
+        // The whole design of the traits is that a bounty is a thing to READ before
+        // engaging rather than a thing to recognise after it has killed you once
+        // (see entities/Enemy.h), and this line is where that reading happens. Every
+        // other champion has an empty mask and gets nothing drawn.
+        //
+        // Above the name rather than below it, because below is where the health bar
+        // is and the two would fight for the same strip.
+        //--------------------------------------------------------------------------
+        if (enemy.bountyTraits != 0)
+        {
+            std::string traits;
+
+            for (int i = 0; i < (int)BountyTrait::Count; ++i)
+            {
+                if (!enemy.Has((BountyTrait)i)) continue;
+
+                if (!traits.empty()) traits += "  ";
+
+                traits += BountyTraitName((BountyTrait)i);
+            }
+
+            UiTextCenteredOutline(traits.c_str(), screen.x,
+                                  screen.y - label*2.0f - bar - 6.0f*ui, label*0.8f,
+                                  Fade(UiAccent, alpha));
+        }
 
         DrawBar(BarHue::Event, x, screen.y - bar, width, ratio, Fade(tint, alpha));
     }

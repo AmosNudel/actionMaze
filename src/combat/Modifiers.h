@@ -119,6 +119,22 @@ struct Modifiers
     // health pool is not what standing behind one is worth, less of every
     // blow actually landing is.
     float damageTaken = 0.0f;
+
+    //------------------------------------------------------------------------------
+    // A RULE rather than a number: may a two-handed weapon be held in one hand?
+    //
+    // Counted rather than flagged because a Modifiers is SUMMED (see ModifiersAdd),
+    // and a bool has no sensible addition - two sources of the same permission would
+    // have to OR, which is a second combining rule for one field. Any value above
+    // zero means yes, which is the same thing every reader asks.
+    //
+    // This is the first entry here that is not a magnitude at all, and it is worth
+    // being clear about why it belongs anyway: the alternative was a second bonus
+    // channel running alongside this one just for rules, which is exactly the three
+    // parallel mechanisms the note at the top of this file exists to prevent. Read
+    // in one place - see EquipWeapon.
+    //------------------------------------------------------------------------------
+    int freeTwoHander = 0;
 };
 
 // a + b, column by column. Fractions add rather than compound - see the note above.

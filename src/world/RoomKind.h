@@ -254,7 +254,13 @@ namespace Rooms
         // Vault --------------------------------------------------------------
         // Small on purpose. A vault the size of a hall is a warehouse; the point of
         // the room is that it is cramped, sealed, and holds the good chest.
-        { "Vault", 4, 12, 1, true, false,
+        //
+        // Weight 2 rather than 1, and this row is now the ONLY thing deciding how
+        // often a treasure chest exists - see Config::TreasureChestChance, which used
+        // to be a second coin flip on top of it. Two gates meant a whole run could go
+        // by with one chest in it, which made the treasure room a room that usually
+        // held no treasure.
+        { "Vault", 4, 12, 2, true, false,
           "props_medium/chest_gold",
           { "props_medium/chest", "props_medium/trunk_large_A", "props_medium/trunk_large_B",
             "props_medium/trunk_large_C", "props_medium/shelf_small", nullptr },

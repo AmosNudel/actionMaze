@@ -183,7 +183,11 @@ private:
     // `at` and marks the shot spent - a mote never sticks, because there is no
     // object to leave behind: it is the spell arriving, and once it has arrived
     // the picture of it arriving is the whole of what is left.
-    void Burst(Shot &shot, Vector3 at, VfxManager &vfx) const;
+    //
+    // `ear` is where the player is standing, for the arrival sound - see
+    // GameSfx::PlayAt. Passed in rather than reached for because this is the one
+    // function here that has no other use for the player at all.
+    void Burst(Shot &shot, Vector3 at, VfxManager &vfx, Vector3 ear) const;
 
     // Plant a shot where it stopped. `at` is the last point it was still clear;
     // it is driven a little further in so the head is under the surface rather

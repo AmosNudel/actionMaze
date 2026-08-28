@@ -30,6 +30,30 @@ enum WeaponTag : unsigned
 std::string WeaponTagsText(unsigned tags);
 
 //----------------------------------------------------------------------------------
+// What a weapon is CALLED, from the name of the file it was cut out of.
+//
+// The pack names its models by shape and letter - sword_A, hammer_C - and that name
+// is an identity: it is what the arsenal keys on, what the stat overrides match
+// against, and what WeaponPreview looks the model up by. It is not a name to show
+// anybody. A merchant selling "sword_D" is a merchant selling a filename.
+//
+// So the display name is a second column rather than a rename. The model name stays
+// exactly what it was and nothing that keys on it has to change; this is read only
+// where a human is going to see the result.
+//
+// Falls back to the model name itself for anything not in the table, so a weapon
+// dropped into the pack tomorrow shows up in the shop under its filename rather
+// than under an empty string - visibly unfinished rather than invisibly broken.
+//
+// Takes and returns a `const char *` rather than a std::string deliberately: the
+// fallback hands BACK the caller's own pointer, and a std::string parameter would
+// make that a pointer into a temporary that dies at the end of the expression. The
+// arsenal stores its names as strings that outlive any call, so this is safe as
+// long as the signature stays this shape.
+//----------------------------------------------------------------------------------
+const char *WeaponDisplayName(const char *modelName);
+
+//----------------------------------------------------------------------------------
 // What a weapon does, as opposed to what it looks like.
 //
 // Reach is how far from the eye the tip of the blade ends up. It is not where the
@@ -124,6 +148,25 @@ struct WeaponStats
     // World units a second of shove, along the blow. Reads as weight, and it is
     // the crowd answer - a weapon that pushes buys the room to swing again.
     float knockback = 0.0f;
+
+    //------------------------------------------------------------------------------
+    // How many blows this shield stops before the guard is knocked down.
+    //
+    // The one number that separates the three shields. Every shield used to stop
+    // exactly one blow and then go into recovery, which made "which shield" a
+    // question with no answer: they carried identical damage reduction and identical
+    // everything else, so the only difference between them was the picture.
+    //
+    // A charge is spent per blow the guard actually ATE, and the guard drops when
+    // the last one goes - see Player::TakeDamageFrom. That makes a heavier shield
+    // worth carrying against a PACK specifically, which is the situation a shield is
+    // for and the one where a single-blow guard was worth least: three skeletons
+    // swinging meant the first was blocked and the next two were not.
+    //
+    // Zero on everything that is not a shield, and unread there - the block path
+    // only ever runs for a hand carrying TagBlocking.
+    //------------------------------------------------------------------------------
+    int blockCharges = 1;
 
     //------------------------------------------------------------------------------
     // How much of this weapon's damage also counts toward an enemy's poise meter -

@@ -99,9 +99,32 @@ namespace
 
         // The one that makes a floor smaller. Not a combat bonus at all - what it
         // buys is the walk between fights, which on a big map is most of the run.
-        { "FLEET", "move 10% faster", { 130, 225, 140, 255 }, 2,
+        //
+        // It is also a real combat tool at this size, which the old 10% was not:
+        // outrunning a Warrior to break off a fight, or closing on an archer before
+        // it looses twice, are both decided by a handful of units a second.
+        { "FLEET", "move 18% faster", { 130, 225, 140, 255 }, 2,
           { Points(0, 0, 0, 0), 0, 0, 0, 0,
-            0.0f, 0.10f } },
+            0.0f, 0.18f } },
+
+        //--------------------------------------------------------------------------
+        // TITAN GRIP: a two-hander in one hand, and the off hand free.
+        //
+        // The most expensive row in the table, and the only one that is not a number
+        // at all - it lifts a RULE (see EquipWeapon), and what it is worth is
+        // whatever the player builds on top of it: a halberd and a shield, or a
+        // halberd and a second halberd. Both are things the game otherwise flatly
+        // refuses, which is why this costs more than the conversions.
+        //
+        // Cheaper than it looks in practice, because it does nothing at all until
+        // the run owns a two-hander to put in a hand - the merchant sells the first
+        // one whenever it sells one, and a player who buys this on floor one may
+        // carry it for a while before it means anything.
+        //--------------------------------------------------------------------------
+        { "TITAN GRIP", "two-handers count as one-handed", { 235, 150, 90, 255 }, 5,
+          { Points(0, 0, 0, 0), 0, 0, 0, 0,
+            0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0,
+            {}, 0, 0.0f, 0.0f, 1 } },
 
         //--------------------------------------------------------------------------
         // The conversions. The most expensive rows, and the only ones whose worth

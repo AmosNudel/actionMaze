@@ -1,5 +1,7 @@
 #include "world/Pickup.h"
 
+#include "audio/Sfx.h"
+
 #include "core/Config.h"
 #include "entities/Player.h"
 #include "raymath.h"
@@ -188,16 +190,34 @@ void PickupManager::Collect(Vector3 feet, Player &player)
 
         if ((dx*dx + dz*dz) > (Config::PickupTakeRadius*Config::PickupTakeRadius)) continue;
 
+        //--------------------------------------------------------------------------
+        // What was picked up, as a sound.
+        //
+        // Three of them rather than one, because what a bottle DID is the thing the
+        // player wants to know without reading the HUD - a heal that sounded like a
+        // buff would need checking, and the whole point of walking over it is that
+        // you do not have to.
+        //--------------------------------------------------------------------------
         switch (pickup.kind)
         {
-            case PickupKind::Health: player.Heal(Config::PickupHealthAmount); break;
+            case PickupKind::Health:
+                player.Heal(Config::PickupHealthAmount);
+                GameSfx::Play(Sfx::Heal);
+                break;
 
             // A full refill rather than a flat sip - see GiveMana's own clamp.
             // Unlike health, mana has no other way to top up mid-floor (it is
             // otherwise paid for by kills alone - see progress/Spellbook.h), so
             // the bottle finding one is worth it landing all at once.
-            case PickupKind::Mana:   player.GiveMana(player.MaxMana()); break;
-            default:                 player.ApplyBuff(pickup.buff); break;
+            case PickupKind::Mana:
+                player.GiveMana(player.MaxMana());
+                GameSfx::Play(Sfx::Pickup);
+                break;
+
+            default:
+                player.ApplyBuff(pickup.buff);
+                GameSfx::Play(Sfx::Buff);
+                break;
         }
 
         pickups.erase(pickups.begin() + i);

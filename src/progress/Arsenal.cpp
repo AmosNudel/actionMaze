@@ -76,6 +76,8 @@ void Arsenal::Reset(const std::vector<WeaponListing> &weapons, const char *start
     forge.assign((size_t)capped, 0);
     prices.assign((size_t)capped, 0);
     names.assign((size_t)capped, std::string());
+    blockCharges.assign((size_t)capped, 1);
+    damageTaken.assign((size_t)capped, 0.0f);
     tags.assign((size_t)capped, 0u);
     damages.assign((size_t)capped, 0);
     reaches.assign((size_t)capped, 0.0f);
@@ -84,6 +86,8 @@ void Arsenal::Reset(const std::vector<WeaponListing> &weapons, const char *start
     {
         prices[(size_t)i] = PriceFor(weapons[(size_t)i]);
         names[(size_t)i] = (weapons[(size_t)i].name != nullptr) ? weapons[(size_t)i].name : "";
+        blockCharges[(size_t)i] = weapons[(size_t)i].blockCharges;
+        damageTaken[(size_t)i] = weapons[(size_t)i].damageTaken;
         tags[(size_t)i] = weapons[(size_t)i].tags;
         damages[(size_t)i] = weapons[(size_t)i].damage;
         reaches[(size_t)i] = weapons[(size_t)i].reach;
@@ -138,6 +142,36 @@ void Arsenal::Give(int index)
     owned[(size_t)index] = 1;
 }
 
+void Arsenal::Take(int index)
+{
+    if ((index < 0) || (index >= Count())) return;
+
+    owned[(size_t)index] = 0;
+
+    // The forge level goes with it - see the note on the declaration. Without this,
+    // selling a maxed weapon and buying it back at list price would return it fully
+    // forged for a fraction of what the forging cost.
+    forge[(size_t)index] = 0;
+}
+
+//----------------------------------------------------------------------------------
+// What the merchant pays for it back.
+//
+// Off DamageMult rather than off the list price alone, so the forge levels the player
+// paid for are worth something on the way out. It is still a loss - half of a figure
+// that never included what forging cost - which is what keeps this a way out of a
+// weapon rather than a way to launder coins through one.
+//----------------------------------------------------------------------------------
+int Arsenal::SellPrice(int index) const
+{
+    if ((index < 0) || (index >= Count())) return 0;
+
+    const int worth = (int)(Price(index)*DamageMult(index)*(WeaponSellPercent/100.0f) + 0.5f);
+
+    // A weapon that sold for nothing would read as the button being broken
+    return (worth < 1) ? 1 : worth;
+}
+
 int Arsenal::IndexOfName(const char *name) const
 {
     for (int i = 0; i < Count(); ++i)
@@ -180,6 +214,20 @@ int Arsenal::DamageAt(int index) const
     if ((index < 0) || (index >= Count())) return 0;
 
     return damages[(size_t)index];
+}
+
+int Arsenal::BlockChargesAt(int index) const
+{
+    if ((index < 0) || (index >= Count())) return 1;
+
+    return blockCharges[(size_t)index];
+}
+
+float Arsenal::DamageTakenAt(int index) const
+{
+    if ((index < 0) || (index >= Count())) return 0.0f;
+
+    return damageTaken[(size_t)index];
 }
 
 float Arsenal::ReachAt(int index) const

@@ -27,6 +27,7 @@ Modifiers ModifiersAdd(const Modifiers &a, const Modifiers &b)
     out.spellPower  = a.spellPower  + b.spellPower;
     out.damageDealt = a.damageDealt + b.damageDealt;
     out.damageTaken = a.damageTaken + b.damageTaken;
+    out.freeTwoHander = a.freeTwoHander + b.freeTwoHander;
     out.manaCost    = a.manaCost    + b.manaCost;
 
     out.manaPerKill = a.manaPerKill + b.manaPerKill;
@@ -148,6 +149,9 @@ const char *ModifiersText(const Modifiers &mods)
     // shield's row stores -0.15 and this prints "-15% damage taken" without
     // needing to know that.
     if (mods.damageTaken != 0.0f) add(TextFormat("%+.0f%% damage taken", mods.damageTaken*100.0f));
+
+    // A rule, not a number - so it says what it lets you do rather than by how much
+    if (mods.freeTwoHander > 0) add("two-handers in one hand");
 
     // Printed with the sign flipped, because this is the one column stored inverted
     // and "-20% cost" is what the player needs to read

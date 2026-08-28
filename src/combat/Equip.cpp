@@ -4,7 +4,8 @@
 #include "progress/Arsenal.h"
 #include "render/ViewModel.h"
 
-void EquipWeapon(ViewModel &viewModel, const Arsenal &arsenal, Hand hand, int index)
+void EquipWeapon(ViewModel &viewModel, const Arsenal &arsenal, Hand hand, int index,
+                 bool freeTwoHander)
 {
     // See the class note: a shield handed to the main hand would be a button
     // that does nothing forever, so the request is refused rather than acted
@@ -39,7 +40,15 @@ void EquipWeapon(ViewModel &viewModel, const Arsenal &arsenal, Hand hand, int in
     // - cycling past empty does not count, but a weapon does - bumps a two-hander
     // that was sitting in `hand` back out. The player is always the one who just
     // acted; the hand that goes empty is always the one that did not.
+    //
+    // Unless the player bought their way out of it - see the note on the
+    // declaration. The check is here at the bottom rather than at the top because
+    // everything above it still applies: TITAN GRIP lifts the two-handed rule and
+    // nothing else, so a shield is still off-hand only and one weapon is still not
+    // two weapons.
     //------------------------------------------------------------------------------
+    if (freeTwoHander) return;
+
     const bool newIsTwoHanded = (index >= 0) && ((arsenal.TagsAt(index) & TagTwoHanded) != 0);
 
     const int otherIndex = viewModel.SlotIndex(other);

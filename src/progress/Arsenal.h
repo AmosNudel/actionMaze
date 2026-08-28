@@ -40,6 +40,14 @@
 constexpr int MaxWeapons = 64;
 
 // How many times one weapon may be forged, and what each level buys.
+//----------------------------------------------------------------------------------
+// What the merchant pays for a weapon sold back, as a percentage of what it is
+// worth. Half, the same as the captain pays for a trait (see TraitSellPercent) and
+// for the same reason: selling is a way out of a weapon you have stopped using, not
+// an arbitrage loop against a vendor who buys and sells the same row.
+//----------------------------------------------------------------------------------
+constexpr int WeaponSellPercent = 50;
+
 constexpr int WeaponForgeMax = 5;
 
 // Of the weapon's own damage, per level. Additive against the table figure - five
@@ -73,6 +81,17 @@ struct WeaponListing
     // the shop and the arsenal can answer "is there a castable one" without
     // reaching back into the view model that only lives in Game.
     unsigned tags = 0;
+
+    // Shields only - see WeaponStats::blockCharges. Carried through so the shop can
+    // print the one stat that separates the three without reaching back into the
+    // view model, which is the same reason `tags` is here.
+    int blockCharges = 1;
+
+    // The weapon's OWN damageTaken column, for the same reason and with the same
+    // caveat: this is display only. It must not be folded into Arsenal::HeldBonus,
+    // which is added to a stat block that already carries the weapon's table bonus
+    // (see Game::RefreshLoadout) and would count it twice.
+    float damageTaken = 0.0f;
 };
 
 class Arsenal
@@ -98,6 +117,20 @@ public:
 
     bool Owns(int index) const;
     void Give(int index);
+
+    //------------------------------------------------------------------------------
+    // Sold back to the merchant. Un-owns it and RESETS its forge level, so a weapon
+    // bought again is bought bare - selling a fully forged sword and buying it back
+    // for less than the forging cost would be an arbitrage loop against a vendor who
+    // deals in both directions.
+    //
+    // Does NOT touch what is in the player's hands, and cannot: the Arsenal has no
+    // idea a ViewModel exists. The counter refuses to sell an equipped weapon in the
+    // first place (see ShopScreen::BuildRows), which is the only reason that split
+    // is safe - so if this ever grows a second caller, that caller owns the same
+    // check.
+    //------------------------------------------------------------------------------
+    void Take(int index);
 
     //------------------------------------------------------------------------------
     // The same case-insensitive substring match Reset's own starting weapon
@@ -143,6 +176,14 @@ public:
     int DamageAt(int index) const;
     float ReachAt(int index) const;
 
+    // How many blows this shield's guard eats - see WeaponStats::blockCharges. 1 on
+    // anything that is not a shield, where it is meaningless and never read.
+    int BlockChargesAt(int index) const;
+
+    // The weapon's own damage-taken fraction, for the shop line. Negative is safer.
+    // Display only - see the note on WeaponListing::damageTaken.
+    float DamageTakenAt(int index) const;
+
     //------------------------------------------------------------------------------
     // Clears every offer, then marks up to `count` unowned weapons offered at
     // random. Fewer than `count` unowned weapons simply offers all of them.
@@ -164,6 +205,13 @@ public:
     // hand-authoring twenty numbers.
     int Price(int index) const;
     int ForgePrice(int index) const;
+
+    //------------------------------------------------------------------------------
+    // What the merchant pays for it back. A fraction of the list price scaled by
+    // what forging has made the weapon worth, so a sword the player put four levels
+    // into sells for more than a bare one - see WeaponSellPercent.
+    //------------------------------------------------------------------------------
+    int SellPrice(int index) const;
 
     // Damage multiplier from the forge level: 1.0 at zero. Applied to the WEAPON's
     // own figure, never to the character's.
@@ -201,6 +249,8 @@ private:
     std::vector<unsigned char> owned;
     std::vector<unsigned char> offered;
     std::vector<unsigned char> forge;
+    std::vector<int> blockCharges;
+    std::vector<float> damageTaken;
     std::vector<int> prices;
     std::vector<std::string> names;
     std::vector<unsigned> tags;

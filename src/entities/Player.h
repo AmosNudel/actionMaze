@@ -95,6 +95,41 @@ public:
     // happened to still be under some threshold rather than once per blow.
     bool hitPending = false;
 
+    //------------------------------------------------------------------------------
+    // What a bounty's VENOM and CRUSHING leave behind - see entities/Enemy.h.
+    //
+    // The player had neither a damage-over-time nor a stagger before these, and both
+    // are here rather than as a general status system because there is exactly one
+    // source of each. A framework for two callers is a framework nobody can read.
+    //
+    // The poison ticks through EVERYTHING - it is not interrupted by blocking, by
+    // moving away or by the blow that follows it - which is the whole of what the
+    // trait is for: it is the one thing in the game that punishes trading hits
+    // rather than spacing them.
+    //------------------------------------------------------------------------------
+    float venomTime = 0.0f;
+    float venomTickTimer = 0.0f;
+    int venomDamagePerTick = 0;
+
+    void ApplyVenom(int damagePerTick);
+
+    // Both clocks, ticked down. Private-facing work called from Update - see the
+    // definition for why it runs before anything else there.
+    void UpdateAfflictions(float delta);
+
+    //------------------------------------------------------------------------------
+    // Staggered: no movement, no jump and no swing until it runs out.
+    //
+    // Deliberately shorter than a swing (see Config::BountyCrushTime). A stagger
+    // taken at the bounty's reach is a free second blow, which is what makes spacing
+    // the answer to CRUSHING; one long enough to eat two blows would be a stun lock,
+    // which is not an answer at all.
+    //------------------------------------------------------------------------------
+    float staggerTime = 0.0f;
+
+    bool IsStaggered() const { return staggerTime > 0.0f; }
+    void Stagger(float seconds);
+
     // Health back, capped at the pool. What weapon lifesteal pays into, and the
     // one way health is ever gained - so a cap that has just grown from a point of
     // constitution is respected without the caller knowing it moved.
@@ -169,6 +204,17 @@ public:
     int MaxHealth() const;
 
     //------------------------------------------------------------------------------
+    // May a two-handed weapon be held in one hand? What the captain's TITAN GRIP
+    // sells - see Modifiers::freeTwoHander and EquipWeapon.
+    //
+    // A reader of its own rather than making Combined() public: this is the one bit
+    // of the modifier sum anything outside the character needs, and handing out the
+    // whole struct so that two call sites can ask one question would make every
+    // other column of it fair game too.
+    //------------------------------------------------------------------------------
+    bool CanOneHandTwoHanders() const;
+
+    //------------------------------------------------------------------------------
     // The stats the character actually fights with: the spent line, with the
     // trait loadout's own point bonuses and conversions applied on top.
     //
@@ -196,6 +242,17 @@ public:
     // farm by cycling the mouse wheel.
     //------------------------------------------------------------------------------
     void SetGearMods(const Modifiers &bonus);
+
+    //------------------------------------------------------------------------------
+    // How many blows the shield currently in the off hand stops before the guard is
+    // knocked down - see WeaponStats::blockCharges.
+    //
+    // Pushed every frame from RefreshLoadout for the same reason the gear bonus is:
+    // what is in the hand changes from several directions and a cached figure would
+    // keep whichever one it heard about last. Swapping shields mid-guard resets the
+    // count, which is correct - it is a different shield.
+    //------------------------------------------------------------------------------
+    void SetBlockCharges(int charges);
 
     // What magic is multiplied against - the ARCANE counterpart of a weapon's own
     // damage. At neutral arcane this is exactly Config::BaseSpellPower, so a fresh
@@ -328,6 +385,12 @@ private:
     // is free to go up. Set by DropBlock the instant a blow lands on it, so
     // holding the button back down does not just raise it a second time.
     float blockCooldown = 0.0f;
+
+    // What the held shield is worth, and what is left of it on the guard currently
+    // up. `blockChargesLeft` is refilled when the shield is raised from rest and
+    // spent one per blow eaten - see TakeDamageFrom.
+    int blockCharges = 1;
+    int blockChargesLeft = 1;
 
     // Seconds the shield has been continuously up (IsBlocking() true) since it
     // last went up. What TakeDamageFrom reads against Config::ParryWindow to

@@ -2,6 +2,7 @@
 
 #include "combat/Attack.h"      // InCone, for the vision arc
 #include "combat/Collider.h"
+#include "audio/Sfx.h"
 #include "combat/Magic.h"
 #include "combat/Projectile.h"
 #include "core/Config.h"
@@ -821,6 +822,135 @@ void EnemyManager::UpdateRaider(Enemy &enemy, float delta, Level &level)
     UpdateAnimation(enemy, delta, move.y);
 }
 
+//----------------------------------------------------------------------------------
+// The three bounty traits that do something every frame rather than on a blow.
+//
+// SAVAGE, VENOM and CRUSHING all ride on a landed hit and live in LandMelee; these
+// three are clocks and forces, and they run whatever the body is doing - including
+// while it is stunned, which is deliberate. A player who staggers a bounty has
+// bought themselves a window against its SWINGS; the pull it exerts and the adds it
+// called are not swings, and a trait that switched off under a hammer would make one
+// weapon the answer to half the table.
+//----------------------------------------------------------------------------------
+void EnemyManager::UpdateBountyTraits(Enemy &enemy, float delta, Level &level, Player &player)
+{
+    //------------------------------------------------------------------------------
+    // ELUSIVE: a window on a cycle. Open, it takes nothing at all - the gate itself
+    // is at the damage funnel in Enemy.cpp, and this only runs the clock.
+    //------------------------------------------------------------------------------
+    if (enemy.Has(BountyTrait::Elusive))
+    {
+        if (enemy.elusiveOpen > 0.0f)
+        {
+            enemy.elusiveOpen -= delta;
+
+            if (enemy.elusiveOpen <= 0.0f)
+            {
+                enemy.elusiveOpen = 0.0f;
+                enemy.elusiveCycle = Config::BountyElusiveCycle;
+            }
+        }
+        else
+        {
+            enemy.elusiveCycle -= delta;
+
+            if (enemy.elusiveCycle <= 0.0f) enemy.elusiveOpen = Config::BountyElusiveOpen;
+        }
+    }
+
+    //------------------------------------------------------------------------------
+    // SUMMONER: adds, on a timer, capped at what it may keep standing.
+    //
+    // They are spawned with NO event tag, which is the whole design of it: the
+    // objective still waits on the bounty alone, so the adds are pressure the player
+    // may answer or ignore rather than a second win condition. Tagging them would
+    // turn a duel into a wave clear, which is what the Hunt event is already for.
+    //
+    // Placed at the bounty's own feet rather than around the player - a summoner
+    // that spawned bodies behind the player would be a trait with no counterplay
+    // except hearing it.
+    //------------------------------------------------------------------------------
+    if (enemy.Has(BountyTrait::Summoner))
+    {
+        enemy.summonCooldown -= delta;
+
+        if (enemy.summonCooldown <= 0.0f)
+        {
+            enemy.summonCooldown = Config::BountySummonGap;
+
+            if (SummonedAlive(enemy.id) < Config::BountySummonMax)
+            {
+                // Minions, always. A retinue of the weakest kind reads as something
+                // the bounty CALLED; a rolled type would occasionally send an archer
+                // or a support mage, which is a second fight rather than pressure -
+                // and a summoner that could call a caster to buff itself is a loop.
+                const Vector3 spot = level.ClipSpawn(enemy.body.position,
+                                                     enemy.body.position);
+
+                // Shallower than the floor rolls, so the adds sit under the bounty
+                // rather than beside it - see Config::BountySummonRankDrop
+                const int depth = floorDepth - Config::BountySummonRankDrop;
+
+                const int id = SpawnEventEnemy(0, spot, (depth > 1) ? depth : 1,
+                                               player.level, 0, 0);
+
+                // Marked as this bounty's, so the cap above can count them without
+                // holding pointers into a vector that is compacted every frame
+                if (id != 0)
+                {
+                    for (Enemy &add : enemies)
+                    {
+                        if (add.id != id) continue;
+
+                        add.summonedBy = enemy.id;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    //------------------------------------------------------------------------------
+    // GRAVITY: a pull toward the body while the player is inside its reach.
+    //
+    // Added to the player's velocity rather than to their position, so it fights the
+    // movement input through the same drag everything else does instead of teleporting
+    // them - which is what makes it something to walk against rather than a grab.
+    //
+    // Falls off linearly to nothing at the rim, so the edge of the effect is a place
+    // the player can feel themselves reach rather than a line they cross.
+    //------------------------------------------------------------------------------
+    if (enemy.Has(BountyTrait::Gravity) && player.IsAlive())
+    {
+        const float dx = enemy.body.position.x - player.body.position.x;
+        const float dz = enemy.body.position.z - player.body.position.z;
+
+        const float away = sqrtf(dx*dx + dz*dz);
+
+        // Inside a body's own radius there is no meaningful direction to pull along
+        if ((away > 0.5f) && (away < Config::BountyGravityRange))
+        {
+            const float fade = 1.0f - away/Config::BountyGravityRange;
+            const float pull = Config::BountyGravityPull*fade*delta;
+
+            player.body.velocity.x += (dx/away)*pull;
+            player.body.velocity.z += (dz/away)*pull;
+        }
+    }
+}
+
+int EnemyManager::SummonedAlive(int ownerId) const
+{
+    int count = 0;
+
+    for (const Enemy &enemy : enemies)
+    {
+        if (enemy.IsAlive() && (enemy.summonedBy == ownerId)) count++;
+    }
+
+    return count;
+}
+
 int EnemyManager::BuffedDamage(const Enemy &enemy)
 {
     if (!enemy.IsBuffed()) return enemy.damage;
@@ -1099,6 +1229,9 @@ int EnemyManager::ChooseCampRoom(int campIndex, const std::vector<Room> &rooms,
 
 void EnemyManager::PopulateCamps(const Level &level, int playerLevel)
 {
+    // Only a SUMMONER reads this back - see UpdateBountyTraits
+    floorDepth = level.Depth();
+
     // Remembered so the first Update does not immediately re-tier everything it
     // has just placed at exactly the tier it placed it at
     lastPlayerLevel = playerLevel;
@@ -1505,7 +1638,9 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
             if (enemy.dotTickTimer <= 0.0f)
             {
                 enemy.dotTickTimer += Config::MagicDotTickInterval;
-                enemy.TakeDamage(enemy.dotDamagePerTick);
+                // Wears a champion's poise down without ever spending it - see
+                // Enemy::TakeDamage. A burning body keeps walking at you.
+                enemy.TakeDamage(enemy.dotDamagePerTick, Config::MagicDotPoiseScale, false);
 
                 //--------------------------------------------------------------
                 // The picture of it, replayed on the body every tick - this is
@@ -1534,6 +1669,12 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
 
         if (enemy.sunderTime > 0.0f) enemy.sunderTime -= delta;
         if (enemy.blindTime > 0.0f) enemy.blindTime -= delta;
+
+        // A bounty's own behaviours, on the same rule as everything above: they are
+        // clocks running ON the body rather than decisions it makes, so a stun or a
+        // channel must not pause them. Costs one test on every ordinary skeleton,
+        // whose mask is zero - see Enemy::bountyTraits.
+        if (enemy.bountyTraits != 0) UpdateBountyTraits(enemy, delta, level, player);
 
         // A DOT or a stack of poison can still kill on its own tick, same as any
         // other source of damage - and a dead body skips everything below exactly
@@ -1801,6 +1942,13 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
 
                 enemy.PlayAnim(EnemyAnim::Attack, cast);
 
+                // The one enemy sound the player is meant to ACT on. A channel is
+                // the only thing here that can be interrupted for a real reward, and
+                // it reaches through walls - so hearing it is the whole way a player
+                // learns to go looking for the caster.
+                GameSfx::PlayAt(Sfx::EnemyCast, Vector3Distance(enemy.body.position,
+                                                                player.Position()));
+
                 enemy.shotPending = false;      // Not a shot: nothing leaves
                 enemy.meleePending = false;     // ...and not a swing either
                 continue;
@@ -1840,6 +1988,12 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
                 }
                 else
                 {
+                    // On the frame the swing BEGINS, not the frame it lands - the
+                    // whole value of hearing it is the warning, and a sound that
+                    // arrived with the damage would be a report rather than one
+                    GameSfx::PlayAt(Sfx::EnemySwing,
+                                    Vector3Distance(enemy.body.position, player.Position()));
+
                     // Nothing happens yet. The blow lands once the actual
                     // blade sweeps into the player - see LandMelee and
                     // EnemyManager::BladeFor. It used to resolve on the frame
@@ -2296,7 +2450,19 @@ void EnemyManager::LandMelee(Enemy &enemy, Player &player)
     // `enemy.damage` and not `spec.damage`: the table row is the kind at rank 1, and
     // this body is whatever the floor rolled it as.
     //------------------------------------------------------------------------------
-    const bool crit = StatRollCrit(enemy.stats);
+    //------------------------------------------------------------------------------
+    // SAVAGE, which is a flat bonus on the roll rather than a guaranteed critical -
+    // see Config::BountySavageCrit. A body whose every blow crits is a damage
+    // number; one whose blows OFTEN crit is a rhythm the player has to read.
+    //------------------------------------------------------------------------------
+    // Through RollWeaponCrit, which is the existing "flat bonus on the roll" path a
+    // weapon's critBonus already feeds - so SAVAGE is capped by StatCritChanceCap
+    // like everything else rather than being a way round the ceiling
+    const bool crit = enemy.Has(BountyTrait::Savage)
+                    ? RollWeaponCrit(enemy.stats, Config::BountySavageCrit)
+                    : StatRollCrit(enemy.stats);
+
+    const int before = player.health;
 
     const bool parried = player.TakeDamageFrom(ResolveDamage(BuffedDamage(enemy), enemy.stats, crit),
                                                enemy.Center(), true);
@@ -2304,6 +2470,45 @@ void EnemyManager::LandMelee(Enemy &enemy, Player &player)
     // Caught at exactly the wrong moment: the shield wins outright, and this
     // body pays for the swing instead of landing it.
     if (parried) enemy.Stagger(Config::ParryStunTime);
+
+    //------------------------------------------------------------------------------
+    // Three outcomes and three sounds, because the player has to be able to tell
+    // them apart with the swing off screen behind them.
+    //
+    // Full level on all three rather than by distance - this is a blow landing on
+    // the player, and there is no distance to it.
+    //------------------------------------------------------------------------------
+    if (parried)                     GameSfx::Play(Sfx::Parry);
+    else if (player.health < before) GameSfx::Play(Sfx::PlayerHurt);
+    else                             GameSfx::Play(Sfx::Block);
+
+    //------------------------------------------------------------------------------
+    // The two traits that leave something behind, and both are gated on the blow
+    // having actually LANDED.
+    //
+    // A parry stops them outright and so does a guard that ate the whole blow: the
+    // answer to CRUSHING is spacing and the answer to VENOM is not trading, and a
+    // poison that stuck through a successful parry would say neither of those
+    // answers works.
+    //------------------------------------------------------------------------------
+    if (player.health >= before) return;
+
+    if (enemy.Has(BountyTrait::Venom))
+    {
+        // Off what actually landed rather than off the swing's rated damage, so a
+        // blow a shield reduced leaves the smaller poison it earned
+        const int dealt = before - player.health;
+        const float total = dealt*Config::BountyVenomFrac;
+        const int ticks = (int)(Config::BountyVenomTime/Config::BountyVenomTick);
+
+        player.ApplyVenom((int)(total/(float)((ticks > 0) ? ticks : 1) + 0.5f));
+    }
+
+    if (enemy.Has(BountyTrait::Crushing) &&
+        (GetRandomValue(0, 999)/1000.0f < Config::BountyCrushChance))
+    {
+        player.Stagger(Config::BountyCrushTime);
+    }
 }
 
 // One shot per Shoot state, guarded by shotPending: the release frame is a
@@ -2348,6 +2553,12 @@ void EnemyManager::ReleaseShot(Enemy &enemy, const Player &player, ProjectileMan
     projectiles.Spawn(from, Vector3Subtract(to, from), Config::ProjectileSpeed,
                       ResolveDamage(BuffedDamage(enemy), enemy.stats, crit),
                       ProjectileSide::AtPlayer, look);
+
+    // On the release frame rather than when the animation started, so the sound and
+    // the thing in the air leave together. An archer across a room is otherwise
+    // completely silent until its arrow arrives, which is the one attack in the game
+    // the player has no warning of at all.
+    GameSfx::PlayAt(Sfx::EnemyShoot, Vector3Distance(from, player.Position()));
 }
 
 const Enemy *EnemyManager::FirstBlocker(const Enemy &shooter, const Player &player) const
@@ -2832,6 +3043,10 @@ int EnemyManager::CollectExp(Player &player)
 
         if (player.GainExp(enemy.exp) > 0)
         {
+            // Full level, not by distance: the level is the player's, not the
+            // dead body's, and it is the one sound here that is about them
+            GameSfx::Play(Sfx::LevelUp);
+
             TraceLog(LOG_INFO, "PLAYER: level %i (%i points to spend)",
                      player.level, player.statPoints);
         }
@@ -2875,6 +3090,16 @@ void EnemyManager::PayLoot(Player &player, LootManager &loot)
     for (const Enemy &enemy : enemies)
     {
         if (!enemy.expPending) continue;
+
+        //--------------------------------------------------------------------------
+        // The death itself, heard from wherever the player is standing.
+        //
+        // Here rather than at the blow that killed, because this is the one place
+        // every death funnels through however it happened - a sword, a mote, a
+        // burn ticking out - and hooking the three separately is how one of them
+        // ends up silent.
+        //--------------------------------------------------------------------------
+        GameSfx::PlayAt(Sfx::EnemyDeath, Vector3Distance(enemy.body.position, player.Position()));
 
         // Off the experience the same body pays, so anything worth more to kill is
         // worth more to loot without a second table to keep in step with the first
@@ -2965,8 +3190,19 @@ void EnemyManager::Draw(const Camera3D &camera) const
             // Being hit is a one-frame event the player needs to read instantly,
             // and a champion's red flashing a slightly different red is not a
             // signal - it is the same colour twice.
-            const Color tint = (enemy.hurtFlash > 0.0f) ? (Color){ 255, 130, 130, 255 }
-                                                        : enemy.tint;
+            Color tint = (enemy.hurtFlash > 0.0f) ? (Color){ 255, 130, 130, 255 }
+                                                   : enemy.tint;
+
+            //------------------------------------------------------------------
+            // ELUSIVE's window, made visible.
+            //
+            // Not optional. A body that silently stopped taking damage would read
+            // as the game being broken rather than as a trait with an answer, and
+            // the answer - stop swinging, reposition - is one the player can only
+            // choose if they can SEE that the window is open. Faded rather than
+            // hidden, so it is still something to track and walk around.
+            //------------------------------------------------------------------
+            if (enemy.IsPhased()) tint = Fade(tint, Config::BountyElusiveFade);
 
             loaded.model.Draw(enemy.bones.data(), enemy.body.position,
                               enemy.yaw + Config::EnemyModelYaw*DEG2RAD,

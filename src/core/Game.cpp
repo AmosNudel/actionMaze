@@ -1,6 +1,9 @@
 
 #include "core/Game.h"
 
+#include "audio/Music.h"
+#include "audio/Sfx.h"
+
 #include "combat/Attack.h"
 #include "combat/Equip.h"
 #include "combat/Stats.h"
@@ -62,6 +65,13 @@ void Game::Init()
     SetTargetFPS(Config::TargetFps);
     ApplyVolume();
 
+    // Both banks need the device open and neither needs the GL context, so they load
+    // here rather than behind the run-loading screen. The music has to be playing on
+    // the main menu, which is up before that screen is ever reached; the effects are
+    // small enough that holding boot for them is not worth a second code path.
+    GameMusic::Load();
+    GameSfx::Load();
+
     // Before anything that measures a string. Every layout in the game is laid out
     // against whatever UiFont() returns, and the default font is a narrower face -
     // a panel fitted before the load and drawn after it is a panel that overflows.
@@ -69,6 +79,11 @@ void Game::Init()
     // word, so it is the only load boot actually waits on - see LoadRunAssets for
     // everything else.
     LoadUiFont();
+
+    // With the font, and for the same reason: the front end is on screen long
+    // before the run-loading screen ever runs, so anything it draws has to be
+    // there at boot rather than behind that screen.
+    menuBackdrop.Load(assets);
 
     // Nothing else here: the gameplay assets and the level are loaded behind the
     // run-loading screen instead, the first time Start Game is pressed - see
@@ -270,6 +285,8 @@ void Game::ResetProgression()
         entry.damage = table.damage;
         entry.reach = table.reach;
         entry.tags = table.tags;
+        entry.blockCharges = table.blockCharges;
+        entry.damageTaken = table.bonus.damageTaken;
 
         listing.push_back(entry);
     }
@@ -424,6 +441,47 @@ void Game::SeedRoomLoot()
             }
         }
     }
+
+    //------------------------------------------------------------------------------
+    // The stocked floor's chest, if the pass above did not manage to place one.
+    //
+    // Everything up to here depends on a VAULT: one has to have rolled, it has to
+    // have been left free of events, vendors and camps, and the map has to have had
+    // a room the right size to be one at all. That chain is correct for an ordinary
+    // floor - the chest is meant to be a bonus that is often not there - and it is
+    // exactly the wrong shape for a floor whose whole job is to hold one of
+    // everything, because any link failing means restarting to test the chest.
+    //
+    // So this asks the direct question instead. Any room that is not the entrance,
+    // the portal or already holding something gets it; failing that, any room at
+    // all. See Config::StockedFirstFloor.
+    //------------------------------------------------------------------------------
+    if (!level.Grid().Stocked() || (treasure.Count() > 0)) return;
+
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        for (int i = 0; i < (int)rooms.size(); ++i)
+        {
+            const Room &room = rooms[(size_t)i];
+
+            if ((room.kind == RoomKind::Entrance) || (room.kind == RoomKind::Portal)) continue;
+
+            // The first pass wants a room with nothing else in it; the second takes
+            // whatever is left, because a chest sharing a room is still a chest
+            if ((pass == 0) &&
+                (listed(vendorRooms, i) || listed(eventRooms, i) || listed(campRooms, i)))
+            {
+                continue;
+            }
+
+            treasure.Spawn(level.FindOpenSpotIn(room, 0.5f));
+
+            TraceLog(LOG_INFO, "TREASURE: stocked floor - a chest in the %s at (%i, %i)",
+                     Rooms::Spec(room.kind).name, room.CenterX(), room.CenterZ());
+
+            return;
+        }
+    }
 }
 
 //----------------------------------------------------------------------------------
@@ -535,6 +593,10 @@ void Game::RefreshLoadout()
     // fighting with two daggers should be the crit build, not a cosmetic choice.
     //------------------------------------------------------------------------------
     player.SetGearMods(ModifiersAdd(stats[0].bonus, stats[1].bonus));
+
+    // Off the OFF hand specifically: a shield only works there (see Equip.h), so
+    // that is the only hand whose charge count can ever mean anything
+    player.SetBlockCharges(stats[(int)Hand::Left].blockCharges);
 }
 
 Vector3 Game::AimDirectionFrom(Vector3 muzzle) const
@@ -600,6 +662,10 @@ void Game::AdvanceFloor()
 //----------------------------------------------------------------------------------
 void Game::Descend()
 {
+    // Before the new floor is built, so it plays under the portal's own fade rather
+    // than on the first frame of a room the player has not seen yet
+    GameSfx::Play(Sfx::Descend);
+
     // Counts itself one floor deeper, which everything below reads back
     level.Load(assets, (unsigned int)GetTime() ^ (unsigned int)time(nullptr));
 
@@ -682,7 +748,14 @@ bool Game::UpdateScreens()
     {
         if (shop.IsOpen()) shop.Close();
         else if (sheet.IsOpen()) sheet.Close();
-        else pause.Toggle();
+        else
+        {
+            pause.Toggle();
+
+            // After the toggle, so this reports where the menu ENDED UP rather than
+            // where it was - the two are opposite sounds and easy to get backwards
+            GameSfx::Play(pause.IsOpen() ? Sfx::UiPause : Sfx::UiUnpause);
+        }
     }
 
     // Tab opens the sheet from the game and from the menu alike, so the points the
@@ -720,8 +793,16 @@ bool Game::UpdateScreens()
     {
         const NpcKind here = vendors.At(player.Position());
 
-        if (here != NpcKind::Count) shop.Open(here);
-        else if (treasure.At(player.Position())) treasure.Open(player.Position(), arsenal);
+        if (here != NpcKind::Count)
+        {
+            shop.Open(here);
+            GameSfx::Play(Sfx::UiConfirm);
+        }
+        else if (treasure.At(player.Position()))
+        {
+            treasure.Open(player.Position(), arsenal);
+            GameSfx::Play(Sfx::Interact);
+        }
     }
 
     //------------------------------------------------------------------------------
@@ -754,7 +835,7 @@ bool Game::UpdateScreens()
     }
 
     if (sheet.IsOpen()) sheet.Update(player, arsenal, spells, traits, viewModel);
-    if (shop.IsOpen()) shop.Update(player, arsenal, spells, traits);
+    if (shop.IsOpen()) shop.Update(player, arsenal, spells, traits, viewModel);
 
     // Both pages can change what the traits are granting - the sheet by equipping
     // one, the counter by selling one out from under a slot - so the sum is rebuilt
@@ -803,10 +884,120 @@ void Game::FreeCursor(bool free)
 // the one frame the screen is fully black behind it. See core/Fader.h and the
 // AppState note in Game.h.
 //----------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------
+// Which playlist the game wants right now.
+//
+// One function rather than a Want() call scattered through each state's update,
+// because "what should be playing" is a question about the whole game's condition
+// and answering it in five places is how two of them end up disagreeing.
+//
+// A run that has ENDED is its own answer even though the world is still drawn behind
+// it - see the note on the track table. Dying is not: the fall and the fade are the
+// last beat of the fight, and cutting the battle track the instant health hit zero
+// would end the run before the player had finished losing it.
+//----------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------
+// A school's own voice - see the magic block in audio/Sfx.cpp.
+//
+// The two enums are contiguous from zero and in the same order (see MagicKind.h),
+// so this is one addition rather than a switch that has to be edited twice. The
+// static_assert is what makes that safe to rely on: add a ninth school and the build
+// stops here instead of silently playing the eighth's sound for it.
+//----------------------------------------------------------------------------------
+static Sfx MagicSfx(Magic magic)
+{
+    static_assert((int)Sfx::MagicRend - (int)Sfx::MagicFlame + 1 == (int)Magic::Count,
+                  "the Sfx magic block and the Magic enum are out of step");
+
+    const int index = (int)magic;
+
+    if ((index < 0) || (index >= (int)Magic::Count)) return Sfx::MagicFlame;
+
+    return (Sfx)((int)Sfx::MagicFlame + index);
+}
+
+//----------------------------------------------------------------------------------
+// The body's own sounds: the step rhythm, and the two edges either side of a jump.
+//
+// The rhythm is driven by DISTANCE COVERED rather than by a fixed timer, which is
+// the whole reason this is a function and not three lines at the call site. A timer
+// plays the same beat whether the player is sprinting or edging along a wall, and
+// what that sounds like is a body whose feet are not attached to the floor it is
+// crossing. Accumulating actual speed means a crouch-walk ticks slower than a run
+// for free, and stopping stops it.
+//
+// `wasGrounded` is last frame's answer, captured before Player::Update overwrote it
+// - the jump and the landing are the two frames where it disagrees with this one's,
+// and an edge is the only way to play either exactly once.
+//----------------------------------------------------------------------------------
+void Game::UpdateFootsteps(float delta, bool wasGrounded)
+{
+    const bool grounded = player.IsGrounded();
+
+    if (grounded != wasGrounded)
+    {
+        GameSfx::Play(grounded ? Sfx::Land : Sfx::Jump);
+
+        // A landing is a footstep of its own, so the next one is a full stride away
+        // rather than arriving immediately after it
+        stepDistance = 0.0f;
+    }
+
+    if (!grounded) return;
+
+    // Horizontal only. A body riding a lift or falling has covered no ground, and
+    // feet that ticked on the way down would be walking through the air.
+    const float speed = Vector2Length({ player.body.velocity.x, player.body.velocity.z });
+
+    // Below a crawl this is drift against a wall rather than walking, and letting it
+    // accumulate means a body pinned in a corner taps forever
+    if (speed < 0.5f)
+    {
+        stepDistance = 0.0f;
+        return;
+    }
+
+    stepDistance += speed*delta;
+
+    // One stride, in world units: how far the body travels between steps at the top
+    // speed the interval was tuned against
+    const float stride = Config::MaxSpeed*Config::FootstepInterval;
+
+    if (stepDistance < stride) return;
+
+    stepDistance -= stride;
+
+    GameSfx::Play(Sfx::Step);
+}
+
+MusicSet Game::WantedMusic() const
+{
+    if (appState != AppState::InGame) return MusicSet::Menu;
+
+    if ((runPhase == RunPhase::Defeated) || (runPhase == RunPhase::Victorious))
+    {
+        return MusicSet::Ended;
+    }
+
+    return MusicSet::Dungeon;
+}
+
 void Game::Update(float delta)
 {
     input = InputState::Poll();
     fader.Update(delta);
+    //------------------------------------------------------------------------------
+    // The music, asked for declaratively every frame - see GameMusic::Want. Asking
+    // for the set already playing is free, so there is no "did the screen change"
+    // bookkeeping here and no way for the two to fall out of step.
+    //
+    // Driven off the APP STATE rather than off the transitions between them, which
+    // is what makes both loading screens and the options page inherit the right
+    // music without naming any of them: they are front end, so they get the front
+    // end's track.
+    //------------------------------------------------------------------------------
+    GameMusic::Want(WantedMusic());
+    GameMusic::Update(delta);
 
     switch (appState)
     {
@@ -917,13 +1108,18 @@ bool Game::HandleOptionsChoice(OptionsScreen::Choice choice)
             fullscreenOn = !fullscreenOn;
             break;
 
-        // Toggled rather than being the volume going to zero and back - the volume
-        // is what the player chose and muting must not spend it
+        // Toggled rather than being the levels going to zero and back - those are
+        // what the player chose, and muting must not spend them
         case OptionsScreen::Choice::ToggleMute:
             muted = !muted;
             ApplyVolume();
             break;
 
+        //--------------------------------------------------------------------------
+        // The three levels. MASTER goes to raylib and covers everything the device
+        // plays; the other two are the mix inside it and go to the modules that own
+        // them - see the note on OptionsView.
+        //--------------------------------------------------------------------------
         case OptionsScreen::Choice::VolumeDown:
             masterVolume = fmaxf(0.0f, masterVolume - 0.1f);
             ApplyVolume();
@@ -932,6 +1128,27 @@ bool Game::HandleOptionsChoice(OptionsScreen::Choice choice)
         case OptionsScreen::Choice::VolumeUp:
             masterVolume = fminf(1.0f, masterVolume + 0.1f);
             ApplyVolume();
+            break;
+
+        case OptionsScreen::Choice::MusicDown:
+            GameMusic::SetVolume(GameMusic::Volume() - 0.1f);
+            break;
+
+        case OptionsScreen::Choice::MusicUp:
+            GameMusic::SetVolume(GameMusic::Volume() + 0.1f);
+            break;
+
+        // The one level with immediate feedback. Music is already playing and a step
+        // is heard on the spot; an effects slider moved in silence tells the player
+        // nothing, so moving it plays the sound it is setting the level of.
+        case OptionsScreen::Choice::EffectsDown:
+            GameSfx::SetVolume(GameSfx::Volume() - 0.1f);
+            GameSfx::Play(Sfx::UiConfirm);
+            break;
+
+        case OptionsScreen::Choice::EffectsUp:
+            GameSfx::SetVolume(GameSfx::Volume() + 0.1f);
+            GameSfx::Play(Sfx::UiConfirm);
             break;
 
         default: break;
@@ -948,6 +1165,8 @@ OptionsView Game::OptionsShown(const char *backLabel) const
     view.fullscreenOn = fullscreenOn;
     view.muted = muted;
     view.volume = masterVolume;
+    view.music = GameMusic::Volume();
+    view.effects = GameSfx::Volume();
     view.backLabel = backLabel;
 
     return view;
@@ -1112,6 +1331,8 @@ void Game::UpdateInGame(float delta)
         runPhase = RunPhase::Dying;
         deathTimer = 0.0f;
         camera.BeginDeathFall();
+
+        GameSfx::Play(Sfx::PlayerDeath);
     }
 }
 
@@ -1192,8 +1413,12 @@ void Game::UpdateWorld(float delta)
     // body never gets pushed by a slab that has already moved out of its way
     level.Update(delta);
 
+    const bool wasGrounded = player.IsGrounded();
+
     player.Update(delta, input, camera.Yaw());
     level.ResolveBody(player.body);
+
+    UpdateFootsteps(delta, wasGrounded);
 
     camera.Update(delta, player.Position(), input.move, input.crouch, player.IsGrounded());
 
@@ -1209,7 +1434,10 @@ void Game::UpdateWorld(float delta)
     bool pressed[HandCount] = { false, false };
     bool held[HandCount] = { false, false };
 
-    if (!viewModelEditor.IsActive())
+    // A staggered body swings at nothing either - see Player::staggerTime. Gated
+    // here alongside the editor rather than inside UpdateAttacks, because this is
+    // where "may the player act at all this frame" is already being decided.
+    if (!viewModelEditor.IsActive() && !player.IsStaggered())
     {
         pressed[(int)Hand::Right] = input.attack;
         held[(int)Hand::Right] = input.attackHeld;
@@ -1259,7 +1487,7 @@ void Game::UpdateWorld(float delta)
             newIndex = arsenal.NextOwned(arsenal.Count(), step, excludeTags);
         }
 
-        EquipWeapon(viewModel, arsenal, hand, newIndex);
+        EquipWeapon(viewModel, arsenal, hand, newIndex, player.CanOneHandTwoHanders());
     }
 
     ViewModelInput weaponInput;
@@ -1302,6 +1530,24 @@ void Game::UpdateWorld(float delta)
                                              player.Attack((Hand)h));
 
         combatDebug.NoteHit(melee.hits);
+
+        //--------------------------------------------------------------------------
+        // The swing going out, and what it found.
+        //
+        // Two separate sounds rather than one, because a miss is information in this
+        // game - the fights are read off whether the blade connected, and a stroke
+        // that sounded the same either way would take that reading away. The crit
+        // layers OVER the hit rather than replacing it, so a critical is an ordinary
+        // blow plus something, which is what it is.
+        //--------------------------------------------------------------------------
+        if (player.Attack((Hand)h).startedThisFrame) GameSfx::Play(Sfx::Swing);
+
+        if (melee.hits > 0)
+        {
+            GameSfx::Play(Sfx::Hit);
+
+            if (melee.crit) GameSfx::Play(Sfx::Crit);
+        }
 
         if (melee.crit) critLanded = true;
 
@@ -1437,6 +1683,27 @@ void Game::UpdateWorld(float delta)
             projectiles.Spawn(muzzle, AimDirectionFrom(muzzle), speed,
                               ResolveDamage(raw, fighting, crit),
                               ProjectileSide::AtEnemies, look, crit, stats[h].poiseScale);
+
+            //----------------------------------------------------------------------
+            // What leaving the hand sounds like.
+            //
+            // A cast is two sounds: the wind-up, which is the same on every school
+            // and is what tells the player the button took, and then the school's
+            // own voice. Layered on the same frame rather than sequenced, because
+            // the mote is already in the air - the charge is a texture under the
+            // school rather than something that happens before it.
+            //
+            // Anything else thrown or loosed is one sound and not a school's.
+            //----------------------------------------------------------------------
+            if (styles[h] == AttackStyle::Cast)
+            {
+                GameSfx::Play(Sfx::Cast);
+                GameSfx::Play(MagicSfx(magic));
+            }
+            else
+            {
+                GameSfx::Play(Sfx::Shoot);
+            }
         }
 
         blades[h] = blade;
@@ -1506,6 +1773,20 @@ void Game::UpdateWorld(float delta)
 
             TraceLog(LOG_INFO, "LOOT: +%i %s", taken[i], CurrencyName((Currency)i));
         }
+
+        //--------------------------------------------------------------------------
+        // One sound for the whole handful, not one per drop.
+        //
+        // Collect takes everything the player is standing on in a single call, and a
+        // bounty's three gems land beside each other - so per-drop would be three
+        // chimes on one footstep. The rare currencies win when both are in the pile,
+        // because a gem is the thing worth noticing and coins are the thing there is
+        // always more of.
+        //--------------------------------------------------------------------------
+        const bool rare = (taken[(int)Currency::Gems] > 0) ||
+                          (taken[(int)Currency::Contracts] > 0);
+
+        GameSfx::Play(rare ? Sfx::LootRare : Sfx::Pickup);
     }
 
     // Health, mana and a buff, taken the same way - walked over, nothing to
@@ -1598,6 +1879,7 @@ void Game::Draw()
         case AppState::MainMenu:
             BeginDrawing();
                 ClearBackground(BLACK);
+                menuBackdrop.Draw();
                 mainMenu.Draw();
                 fader.Draw();
             EndDrawing();
@@ -1606,6 +1888,7 @@ void Game::Draw()
         case AppState::Options:
             BeginDrawing();
                 ClearBackground(BLACK);
+                menuBackdrop.Draw();
                 options.Draw(OptionsShown("BACK TO MENU"));
                 fader.Draw();
             EndDrawing();
@@ -1614,6 +1897,7 @@ void Game::Draw()
         case AppState::Credits:
             BeginDrawing();
                 ClearBackground(BLACK);
+                menuBackdrop.Draw();
                 credits.Draw();
                 fader.Draw();
             EndDrawing();
@@ -1722,7 +2006,7 @@ void Game::DrawInGame()
         // menu too - see the note on Game::pauseOptions
         if (pauseOptions) options.Draw(OptionsShown("BACK"));
 
-        shop.Draw(player, arsenal, spells, traits, weaponPreview);
+        shop.Draw(player, arsenal, spells, traits, weaponPreview, viewModel);
         sheet.Draw(player, arsenal, spells, traits, weaponPreview, viewModel);
 
         // Over all of them: once a run has ended none of the pages above it are
@@ -1747,6 +2031,10 @@ void Game::Shutdown()
     viewModel.Unload();
     weaponPreview.Unload();
     enemies.Unload();
+    // Both before CloseAudioDevice, which is what owns the voices they hold
+    GameSfx::Unload();
+    GameMusic::Unload();
+
     assets.UnloadAll();     // Must happen while the GL context is still alive
 
     CloseAudioDevice();

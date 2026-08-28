@@ -242,6 +242,49 @@ namespace Config
     // and a normal run gets a map it has not seen.
     constexpr unsigned int LevelSeed  = 0u;
 
+    //--------------------------------------------------------------------------
+    // Playtesting: stock the FIRST floor with one of everything.
+    //
+    // A run normally rolls two of the four event kinds, one to three vendors, and
+    // a treasure chest only where a Vault happened to land - which is right for
+    // playing and wrong for testing, because reaching a SEAL to check a change to
+    // it can mean restarting four times. With this on, depth 1 carries every event
+    // kind, all three vendors and a guaranteed Vault to put a chest in.
+    //
+    // DEPTH 1 ONLY, deliberately. Everything below it rolls as it always did, so
+    // the thing being tested is still the real generator a floor down - a flag
+    // that changed every floor would be testing a game nobody plays.
+    //
+    // Off for a release build. It is a dial in the same spirit as LevelSeed above
+    // - something development turns on and a player never sees - and it lives here
+    // rather than behind a key so that turning it on is a deliberate edit.
+    //--------------------------------------------------------------------------
+    constexpr bool  StockedFirstFloor = true;
+
+    //--------------------------------------------------------------------------
+    // The picture behind the front end - see ui/MenuBackdrop.h.
+    //--------------------------------------------------------------------------
+    constexpr const char *MenuSkyImage = "textures/menu/sky_night.png";
+
+    //--------------------------------------------------------------------------
+    // What that picture is multiplied by.
+    //
+    // The source is a BLUE night sky and this game happens under a red one, so it
+    // is pulled across into the same register the skybox is in - a cold front end
+    // in front of a red world reads as two games rather than one.
+    //
+    // Red near full and the other two channels well down, rather than a gentle
+    // wash: a multiply can only ever darken, so anything subtle leaves the image
+    // reading as the blue it started as. The green is kept above the blue so the
+    // result lands warm - equal green and blue would take it magenta, which is a
+    // different game again.
+    //
+    // Three bytes rather than a raylib Color, because this header deliberately
+    // includes no raylib - see the note at the top. MenuBackdrop.cpp builds the
+    // Color, which is the file that already has the dependency.
+    //--------------------------------------------------------------------------
+    constexpr unsigned char MenuSkyTint[3] = { 255, 58, 42 };
+
     // Rooms are placed by rejection - propose, reject on overlap, repeat - so this
     // is an upper bound and a busy map lands under it.
     //
@@ -722,6 +765,18 @@ namespace Config
     // behind it.
     constexpr float MagicDotEffectScale = 0.35f;
 
+    //--------------------------------------------------------------------------
+    // What a DOT tick is worth against a CHAMPION's poise meter - see the flinch
+    // note in Enemy.cpp. Only champions have a meter at all; on everything else
+    // this is unused, because a tick can never flinch anything regardless.
+    //
+    // Well under a real blow. A burn is pressure the body walks through, and a
+    // burn that filled the meter as fast as a hammer did would mean the way to
+    // stagger a champion was to light it and stand back - which is the fight the
+    // poise system exists to prevent.
+    //--------------------------------------------------------------------------
+    constexpr float MagicDotPoiseScale = 0.25f;
+
     // FLAME: a burn that catches on the neighbours. The spread is the burst itself
     // capped at three bodies (see MagicDef::aoeMaxTargets) rather than a chain that
     // hops later - a fire the player can SEE take three at once reads as spreading,
@@ -766,6 +821,26 @@ namespace Config
     // the bar, no other school is ever the right cast and the mana pool stops
     // being the thing that rations magic.
     constexpr float RendLifestealFraction = 0.30f;
+
+    //--------------------------------------------------------------------------
+    // Sound
+    //--------------------------------------------------------------------------
+    // How far a world sound carries - see GameSfx::PlayAt. Inside the first
+    // figure it plays at its table level; past the second it is not played at
+    // all, so a fight the player walked away from costs nothing.
+    //
+    // The near figure is roughly a room across: everything happening in the
+    // fight the player is actually in should be at full level, and only the
+    // floor beyond it falls away. The far figure is a good deal less than the
+    // map is wide, which is the point - a skeleton dying in the far corner is
+    // not something the player needs to hear.
+    constexpr float SfxFullVolumeRange = 8.0f;
+    constexpr float SfxHearingRange    = 42.0f;
+
+    // Seconds of ground movement between footsteps, at ordinary running speed.
+    // Scaled by how fast the body is actually going, so a crouch-walk is slower
+    // than a sprint rather than the same rhythm at a different volume.
+    constexpr float FootstepInterval   = 0.42f;
 
     //--------------------------------------------------------------------------
     // The town outside the maze - see world/Skyline.h
@@ -953,11 +1028,20 @@ namespace Config
     // A chest in the Vault room that hands over one weapon the player does not
     // already own, for free. Rarer than a merchant on purpose: a merchant is
     // guaranteed on every floor and is the ordinary way an arsenal grows, and
-    // this is meant to be a bonus that is often not there at all - Vault is
-    // already the rarest room kind on RoomKind.h's own weight table, and even
-    // when one is rolled this is a coin flip on top of it.
+    // this is meant to be a bonus rather than the plan.
+    //
+    // It used to be a coin flip ON TOP of the Vault roll, and two gates was one too
+    // many: a whole run would go by with a single chest in it, which made the room
+    // kind the game's own art calls a treasure room a room that usually held no
+    // treasure. The Vault roll is now the ONLY gate - see the weight on its row in
+    // RoomKind.h, which is where the rarity is tuned and where a reader looking for
+    // it would think to look.
+    //
+    // Kept as a constant rather than deleted because it is still the dial: dropping
+    // it below 1 puts the second gate back, and doing that by editing one number is
+    // better than doing it by re-adding a branch.
     //--------------------------------------------------------------------------
-    constexpr float TreasureChestChance = 0.5f;    // Of an eligible Vault holding one
+    constexpr float TreasureChestChance = 1.0f;    // Of an eligible Vault holding one
     constexpr float TreasureTakeRadius  = 1.3f;
     constexpr float TreasureChestScale  = 1.15f;
     constexpr float TreasureAuraCore    = 0.20f;
@@ -1201,6 +1285,15 @@ namespace Config
     // the floor is about. Two also means a player who fails one still has a
     // reason to find the other.
     constexpr int   EventCount          = 2;
+
+    // How many event rooms the STOCKED first floor gets - one per kind, so every
+    // kind can be placed (see Config::StockedFirstFloor and EventManager::Place).
+    //
+    // A plain number rather than EventKind::Count, because Map.cpp is world geometry
+    // and has no business including the gameplay header that owns that enum - the
+    // same separation RoomKind.h keeps by writing vendor ids as ints. The
+    // static_assert in Event.cpp is what stops the two drifting apart.
+    constexpr int   StockedEventCount   = 4;
     // Floor cells a room needs before it may hold one. Below this a hunt is a
     // scrum against a wall, which is not a fight, it is a queue.
     //
@@ -1342,6 +1435,74 @@ namespace Config
     constexpr float BountyHealthScale   = 1.5f;
     constexpr float BountyTimeLimit     = 100.0f;
 
+    //--------------------------------------------------------------------------
+    // Bounty traits - what makes a bounty a DIFFERENT fight rather than a longer
+    // one. Ported from the mobile game, where the reasoning below was worked out.
+    //
+    // A duel against one body the player can bring everything to bear on is a
+    // health bar to be chipped at, and the only lever either side has is raw
+    // numbers. So the difficulty lives in BEHAVIOUR instead: every bounty rolls
+    // two traits, and each asks a different question with an answer the player can
+    // actually play. See EnemyBountyTrait for the six and what each one is for.
+    //
+    // Two at a time out of six is fifteen pairings, so a bounty is a thing to READ
+    // before engaging rather than a thing to recognise. The pair is drawn on the
+    // champion's own name plate - see Hud.cpp.
+    //
+    // The numbers are deliberately modest: two of these stack on ONE body, on top
+    // of BountyHealthScale and BountyRankBonus, and the fight is meant to be
+    // shorter and sharper rather than survivable by accident.
+    //--------------------------------------------------------------------------
+    constexpr int   BountyTraitsPer     = 2;
+
+    // SAVAGE: a flat bonus on top of whatever the body's own crit roll is, so it
+    // crits often without being a guaranteed critical every swing - a fight where
+    // every blow is a crit is just a damage number, not a rhythm to read.
+    constexpr float BountySavageCrit    = 0.45f;
+
+    // VENOM: a fraction of the blow, dealt again over the seconds below. It keeps
+    // ticking through everything, which makes it the one thing in the game that
+    // punishes trading hits rather than spacing them.
+    constexpr float BountyVenomFrac     = 0.60f;
+    constexpr float BountyVenomTime     = 4.0f;
+    constexpr float BountyVenomTick     = 0.5f;
+
+    // CRUSHING: a share of landed blows stagger. Deliberately shorter than a
+    // swing: a stagger you take at its reach is a free second blow, which is what
+    // makes spacing the answer, but one long enough to eat two would be a stun
+    // lock rather than a punish.
+    constexpr float BountyCrushChance   = 0.33f;
+    constexpr float BountyCrushTime     = 0.45f;
+
+    // ELUSIVE: a window, on a cycle, where it takes nothing at all. The answer is
+    // to stop swinging into it and reposition - the one thing a player grinding a
+    // health bar never does. It starts CLOSED, a full cycle from its first window,
+    // so the player sees the rhythm before it costs them a swing.
+    constexpr float BountyElusiveCycle  = 5.0f;
+    constexpr float BountyElusiveOpen   = 1.1f;
+
+    // How solid it is drawn while phased. Low enough to be unmistakable and high
+    // enough to still be a body the player can track and walk around - see the
+    // draw in EnemyManager.cpp for why making this invisible would be wrong.
+    constexpr float BountyElusiveFade   = 0.30f;
+
+    // SUMMONER: adds, on a timer. They spawn WITHOUT the event's tag, so the
+    // bounty stays the only body the objective is waiting on - they are pressure
+    // to answer, not a second objective. Waits half a cycle before the first, so
+    // the player can read the plate before the adds arrive: an instant summon on
+    // spawn reads as ambient trash rather than as a trait.
+    constexpr float BountySummonGap     = 6.0f;
+    constexpr int   BountySummonMax     = 3;    // Living adds it may keep at once
+    constexpr int   BountySummonRankDrop = 2;   // Ranks below the bounty itself
+
+    // GRAVITY: a continuous pull while the player is in range, falling off to
+    // nothing at the rim. The answer is to fight the stick rather than stand and
+    // trade at its preferred gap. Well under the player's own top speed, so it
+    // drags rather than traps - a pull that could beat MaxSpeed would be a stun
+    // with extra steps.
+    constexpr float BountyGravityRange  = 12.0f;
+    constexpr float BountyGravityPull   = 4.5f;
+
     // Seal --------------------------------------------------------------------
     // The one event that is not about killing anything: runes scattered across
     // the room, a clock, and the ceiling coming down while you gather them.
@@ -1353,8 +1514,24 @@ namespace Config
     constexpr int   SealRunes           = 8;
     constexpr float SealTimeLimit       = 30.0f;
     constexpr float SealPickupRadius    = 1.1f;
-    constexpr float SealBoltGap         = 0.9f;     // Seconds between volleys
-    constexpr int   SealBoltsPerVolley  = 2;
+
+    //--------------------------------------------------------------------------
+    // The storm's rate, and it is meant to BE a storm.
+    //
+    // A volley every 0.9s of two bolts was a metronome the player could stand
+    // still and count: with a 0.75s telegraph, one volley had almost finished
+    // warning before the next arrived, so there was never more than a couple of
+    // rings on the floor at once and the room was never actually dangerous to
+    // cross. Halving the gap and raising the volley puts four to eight rings live
+    // at any moment, which is what turns "dodge a telegraph" into "read the room
+    // and pick a path" - the thing this event is for.
+    //
+    // The per-hit damage is deliberately NOT raised with it (see
+    // SealBoltDamageFrac). Volume is the teeth here; a storm this thick that also
+    // hit hard would be a coin flip rather than a route to find.
+    //--------------------------------------------------------------------------
+    constexpr float SealBoltGap         = 0.45f;    // Seconds between volleys
+    constexpr int   SealBoltsPerVolley  = 4;
     // Seconds a bolt is a ring on the floor before it lands. Long enough to walk
     // out of and short enough that walking out of it is a decision rather than a
     // stroll - a telegraph the player can ignore is not a telegraph.

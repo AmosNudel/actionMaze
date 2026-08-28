@@ -22,9 +22,19 @@ namespace
     // again to correct it to a block reaction - would leave the cross-fade reading
     // the flinch it never played as the pose to fade out of.
     //------------------------------------------------------------------------------
-    void Apply(Enemy &enemy, int amount, bool blocked, float poiseScale)
+    void Apply(Enemy &enemy, int amount, bool blocked, float poiseScale, bool canStagger)
     {
         if ((amount <= 0) || !enemy.IsAlive()) return;
+
+        //--------------------------------------------------------------------------
+        // ELUSIVE's window: the body is not there, and nothing at all lands.
+        //
+        // Here at the single funnel rather than at each of the callers, so a mote, a
+        // sweeping blade, an arrow and a burn already running are all answered by
+        // one rule - which is the point of the trait. A window that only stopped
+        // swords would teach the player to swap weapons rather than to reposition.
+        //--------------------------------------------------------------------------
+        if (enemy.IsPhased()) return;
 
         //--------------------------------------------------------------------------
         // SPLASH's sunder, applied HERE rather than at the spell that caused it, so
@@ -98,16 +108,48 @@ namespace
         const float threshold = (Config::EnemyTypes[enemy.type].poise
                                  + TierAt(enemy.tier).poise)*enemy.maxHealth;
 
+        if (threshold > 0.0f) enemy.poise += (float)amount*poiseScale;
+
+        //--------------------------------------------------------------------------
+        // Damage that cannot give ground - a burn ticking, a poison working.
+        //
+        // It still WEARS a champion down: the meter above was filled before this
+        // returned, so a body under a DOT breaks sooner to the sword that finally
+        // lands on it. What it must never do is break the body on its own.
+        //
+        // This is the whole fix for FLAME and TOXIN. Every tier below Champion has a
+        // poise threshold of zero and so used to fall straight through to the Hit
+        // clip on EVERY source of damage - including a tick. At a tick every half
+        // second against a flinch that runs about as long, anything the player set
+        // alight stopped being able to cross the room: it was not fighting a burn,
+        // it was being stunlocked by one, from range, for free. A DOT is meant to be
+        // pressure the enemy walks through to reach you, not a way of never letting
+        // it arrive.
+        //--------------------------------------------------------------------------
+        if (!canStagger) return;
+
         if (threshold > 0.0f)
         {
-            enemy.poise += (float)amount*poiseScale;
-
             if (enemy.poise < threshold) return;
 
             enemy.poise = 0.0f;
         }
 
         enemy.PlayAnim(EnemyAnim::Hit, PickVariant(Config::EnemyHitVariants));
+    }
+}
+
+const char *BountyTraitName(BountyTrait trait)
+{
+    switch (trait)
+    {
+        case BountyTrait::Savage:   return "SAVAGE";
+        case BountyTrait::Venom:    return "VENOM";
+        case BountyTrait::Crushing: return "CRUSHING";
+        case BountyTrait::Elusive:  return "ELUSIVE";
+        case BountyTrait::Summoner: return "SUMMONER";
+        case BountyTrait::Gravity:  return "GRAVITY";
+        default:                    return "";
     }
 }
 
@@ -161,9 +203,9 @@ void Enemy::Shove(Vector3 direction, float speed)
     body.velocity.z += push.z;
 }
 
-void Enemy::TakeDamage(int amount)
+void Enemy::TakeDamage(int amount, float poiseScale, bool canStagger)
 {
-    Apply(*this, amount, false, 1.0f);
+    Apply(*this, amount, false, poiseScale, canStagger);
 }
 
 //----------------------------------------------------------------------------------
@@ -194,7 +236,7 @@ void Enemy::TakeDamageFrom(int amount, Vector3 source, float poiseScale)
         if (amount < 1) amount = 1;
     }
 
-    Apply(*this, amount, blocked, poiseScale);
+    Apply(*this, amount, blocked, poiseScale, true);
 }
 
 //----------------------------------------------------------------------------------

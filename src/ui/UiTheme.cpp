@@ -64,9 +64,9 @@ bool UiInput::Over(Rectangle r) const
 // through, which is exactly what it is not. A little of the room is left showing so
 // the page still reads as being IN the game rather than in front of it.
 //----------------------------------------------------------------------------------
-void UiPageBackdrop()
+void UiPageBackdrop(float alpha, Color colour)
 {
-    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(UiBg, 0.965f));
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(colour, alpha));
 }
 
 float UiPageScale(float designHeight, float maxScale)

@@ -77,7 +77,18 @@ public:
     void LoadTestArena();
 
     // Rooms carved into solid rock and joined by corridors. Same seed, same map.
-    void Generate(unsigned int seed);
+    //------------------------------------------------------------------------------
+    // `floorDepth` is which floor this is - NOT this class's own `depth`, which is
+    // the grid's size in cells. The generator reads it for exactly one reason:
+    // Config::StockedFirstFloor stocks floor 1 with one of everything for
+    // playtesting. Nothing else about a map varies with how deep it is - how HARD a
+    // floor is lives in the enemy ranks, not in its shape.
+    //------------------------------------------------------------------------------
+    void Generate(unsigned int levelSeed, int floorDepth);
+
+    // True when this map is the stocked first floor - see Config::StockedFirstFloor.
+    // Read by the passes that have to guarantee something rather than roll it.
+    bool Stocked() const { return stocked; }
 
     int Width() const { return width; }
     int Depth() const { return depth; }
@@ -190,6 +201,8 @@ private:
 
     // Which rooms hold objectives. Part of AssignKinds' job rather than a caller's -
     // see the note on the definition for why it cannot wait.
+    bool stocked = false;
+
     void ChooseEventRooms(std::mt19937 &rng, int portalRoom);
 
     // ...and which hold vendors. After the events, and never in one of their rooms -

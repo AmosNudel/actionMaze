@@ -24,6 +24,7 @@
 #include "ui/Hud.h"
 #include "ui/LoadingScreen.h"
 #include "ui/MainMenu.h"
+#include "ui/MenuBackdrop.h"
 #include "ui/OptionsScreen.h"
 #include "ui/PauseMenu.h"
 #include "ui/RunEndScreen.h"
@@ -31,6 +32,7 @@
 #include "world/Chaos.h"
 #include "world/Event.h"
 #include "world/Level.h"
+#include "audio/Music.h"
 #include "world/Skyline.h"
 #include "world/Loot.h"
 #include "world/Pickup.h"
@@ -91,6 +93,15 @@ private:
     // taking or freeing the cursor, resetting a stage - so Update's dispatch
     // doesn't have to know any of it.
     void EnterState(AppState next);
+
+    // Which playlist the game's current condition calls for - see the definition.
+    MusicSet WantedMusic() const;
+
+    //------------------------------------------------------------------------------
+    // The body's own sounds - the step rhythm and the jump/land edges. `wasGrounded`
+    // is last frame's answer, captured before Player::Update overwrote it.
+    //------------------------------------------------------------------------------
+    void UpdateFootsteps(float delta, bool wasGrounded);
 
     void UpdateBootLoading(float delta);
     void UpdateMainMenu(float delta);
@@ -298,6 +309,9 @@ private:
     // The front end - see the AppState note above
     Fader fader;
     MainMenu mainMenu;
+
+    // The picture behind all three front-end pages - see ui/MenuBackdrop.h
+    MenuBackdrop menuBackdrop;
     OptionsScreen options;
     CreditsScreen credits;
     LoadingScreen loadingScreen;
@@ -358,6 +372,11 @@ private:
     //------------------------------------------------------------------------------
     enum class RunPhase { Playing, Dying, Defeated, Victorious };
     RunPhase runPhase = RunPhase::Playing;
+
+    // Ground covered since the last footstep, in world units - see UpdateFootsteps.
+    // Distance rather than time, so the rhythm follows how fast the body is actually
+    // moving instead of playing one beat at every speed.
+    float stepDistance = 0.0f;
 
     // How long the current Dying beat has been running - see UpdateDying.
     float deathTimer = 0.0f;

@@ -1,3 +1,4 @@
+#include "audio/Sfx.h"
 #include "ui/MainMenu.h"
 
 #include "core/Config.h"
@@ -113,6 +114,8 @@ MainMenu::Choice MainMenu::Update()
 
     if (!chosen) return Choice::None;
 
+    GameSfx::Play(Sfx::UiConfirm);
+
     // The enum runs None, Start, Options, Credits, Exit - entry i is i + 1, the
     // same trick PauseMenu's table uses for the same reason: the two have to be
     // edited together, and sitting next to each other in this file is what makes
@@ -125,7 +128,7 @@ void MainMenu::Draw() const
     const Layout page = Measure();
     const float ls = page.ls;
 
-    UiPageBackdrop();
+    UiPageBackdrop(UiFrontBackdrop, UiFrontBg);
 
     UiLabel(Config::WindowTitle, page.page.x, page.titleY, TitleSize*ls, UiAccent);
 

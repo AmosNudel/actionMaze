@@ -1,5 +1,6 @@
 #include "combat/Projectile.h"
 
+#include "audio/Sfx.h"
 #include "combat/Collider.h"
 #include "core/Config.h"
 #include "entities/Enemy.h"
@@ -144,7 +145,7 @@ void ProjectileManager::Spawn(Vector3 from, Vector3 direction, float speed, int 
 // burst on an enemy is centred inside the chest - both of which cost most of the
 // picture to the depth test.
 //----------------------------------------------------------------------------------
-void ProjectileManager::Burst(Shot &shot, Vector3 at, VfxManager &vfx) const
+void ProjectileManager::Burst(Shot &shot, Vector3 at, VfxManager &vfx, Vector3 ear) const
 {
     const MagicDef &magic = *shot.look.magic;
 
@@ -161,6 +162,11 @@ void ProjectileManager::Burst(Shot &shot, Vector3 at, VfxManager &vfx) const
     const Color tint = overridden ? magic.colour : magic.impactTint;
 
     vfx.Spawn(kind, centre, magic.impactSize*shot.look.impactScale, tint);
+
+    // The one sound a cast makes on arrival, wherever it stopped - a body, a wall,
+    // the floor. Once per mote, which is what keeps a burst that caught five bodies
+    // from being five overlapping impacts; see the note on Sfx::SpellImpact.
+    GameSfx::PlayAt(Sfx::SpellImpact, Vector3Distance(at, ear));
 
     // Spent, not stuck. Update sweeps it up at the end of the frame.
     shot.life = 0.0f;
@@ -246,9 +252,16 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
             // it is pointed at - exactly as a melee swing is judged. Never a
             // parry: that is a timed read of a swing, not something a shield
             // does to an arrow.
+            const int before = player.health;
+
             player.TakeDamageFrom(shot.damage, contact, false);
 
-            if (mote) Burst(shot, contact, vfx);
+            // Full level, not by distance - this is an arrow arriving in the
+            // player's own chest. Only when it actually got through: a shot the
+            // shield ate says so with the guard's own sound instead.
+            GameSfx::Play((player.health < before) ? Sfx::PlayerHurt : Sfx::Block);
+
+            if (mote) Burst(shot, contact, vfx, player.Position());
 
             return false;
         }
@@ -271,6 +284,11 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
             enemy.killedBySpell = mote;
 
             enemy.TakeDamageFrom(shot.damage, contact, shot.poiseScale);
+
+            // An arrow or a thrown blade finding a body. A mote is deliberately
+            // silent here - its arrival sounds once through Burst below, however
+            // many bodies the burst went on to catch. See the note on Sfx::EnemyHurt.
+            if (!mote) GameSfx::PlayAt(Sfx::EnemyHurt, Vector3Distance(contact, player.Position()));
 
             if (shot.crit) enemyCrit = true;
 
@@ -375,7 +393,7 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
             // actually met - not at the centre of the body and not at the end of
             // the substep. A blast that plays a foot to the side of the skeleton it
             // just killed reads as a near miss that worked anyway.
-            if (mote) Burst(shot, contact, vfx);
+            if (mote) Burst(shot, contact, vfx, player.Position());
 
             // Where the shot was loosed from, not where it landed. An enemy shot
             // from cover it never saw now goes and looks there, which is the
@@ -409,7 +427,7 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
     {
         if (level.Grid().SolidAtWorld(shot.position.x, shot.position.z))
         {
-            if (mote) Burst(shot, shot.position, vfx);
+            if (mote) Burst(shot, shot.position, vfx, player.Position());
             else Stick(shot, shot.position, level, -1);
 
             return false;
@@ -424,7 +442,7 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
 
         if (struck >= 0)
         {
-            if (mote) Burst(shot, shot.position, vfx);
+            if (mote) Burst(shot, shot.position, vfx, player.Position());
             else Stick(shot, shot.position, level, struck);
 
             return false;
@@ -434,7 +452,7 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
         // wide each - a shot through one was a shot through what is plainly a wall.
         if (level.DoorFrameAt(shot.position, Config::ProjectileRadius))
         {
-            if (mote) Burst(shot, shot.position, vfx);
+            if (mote) Burst(shot, shot.position, vfx, player.Position());
             else Stick(shot, shot.position, level, -1);
 
             return false;
@@ -457,7 +475,7 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
         const float t = (drop > 1e-5f) ? ((was.y - level.FloorHeight())/drop) : 0.0f;
         const Vector3 landed = Vector3Lerp(was, shot.position, t);
 
-        if (mote) Burst(shot, landed, vfx);
+        if (mote) Burst(shot, landed, vfx, player.Position());
         else Stick(shot, landed, level, -1);
 
         return false;

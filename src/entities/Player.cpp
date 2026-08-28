@@ -43,7 +43,33 @@ void Player::Update(float delta, const InputState &input, float lookYaw)
 {
     yaw = lookYaw;
 
-    body.Update(delta, yaw, input.move, input.jump, input.crouch);
+    UpdateAfflictions(delta);
+
+    //------------------------------------------------------------------------------
+    // What FLEET and a speed buff are actually worth.
+    //
+    // Set here every frame rather than at the moment something is equipped, for the
+    // same reason SetGearMods is pushed every frame: the sum can change from four
+    // directions - a trait slot, a level unlocking one, a weapon, a buff running out
+    // - and a body that cached its own speed would keep whichever of them it was
+    // told about last.
+    //
+    // Floored well above zero. `moveSpeed` is a signed fraction like every other in
+    // Modifiers, so a future row that slowed the player has somewhere to live, and a
+    // stack of them that reached -100% would be a character that cannot move at all.
+    //------------------------------------------------------------------------------
+    const float speedScale = 1.0f + Combined().moveSpeed;
+
+    body.maxSpeed = Config::MaxSpeed*((speedScale < 0.25f) ? 0.25f : speedScale);
+
+    // A staggered body takes no input at all - see Player::staggerTime. The crouch
+    // is left alone deliberately: it is a POSE rather than an action, and snapping
+    // the camera up out of a crouch because something hit you would move the view
+    // at the exact moment the player is trying to read where the blow came from.
+    const Vector2 move = IsStaggered() ? Vector2{ 0.0f, 0.0f } : input.move;
+    const bool jump = !IsStaggered() && input.jump;
+
+    body.Update(delta, yaw, move, jump, input.crouch);
 
     lastHitAge += delta;
 
@@ -69,6 +95,61 @@ void Player::Update(float delta, const InputState &input, float lookYaw)
             if (mana > MaxMana()) mana = MaxMana();
         }
     }
+}
+
+//----------------------------------------------------------------------------------
+// The poison and the stagger, ticking down.
+//
+// Both run on the same rule the enemy's own DOTs follow (see EnemyManager::Update):
+// this is happening TO the body rather than being something it is doing, so nothing
+// - not blocking, not a page being open, not the blow that lands next - pauses it.
+//
+// Ordered before everything else in Update so a tick that kills is a death this
+// frame rather than one carried into the next, which is the same reason the world's
+// death check sits at the bottom of UpdateInGame.
+//----------------------------------------------------------------------------------
+void Player::UpdateAfflictions(float delta)
+{
+    if (staggerTime > 0.0f) staggerTime -= delta;
+
+    if (venomTime <= 0.0f) return;
+
+    venomTime -= delta;
+    venomTickTimer -= delta;
+
+    if (venomTickTimer > 0.0f) return;
+
+    venomTickTimer += Config::BountyVenomTick;
+
+    // Through TakeDamage, so it is one funnel with every other source - a poison
+    // that wrote to `health` directly would skip the death the rest of the game
+    // reads off IsAlive()
+    TakeDamage(venomDamagePerTick);
+}
+
+void Player::ApplyVenom(int damagePerTick)
+{
+    if ((damagePerTick <= 0) || !IsAlive()) return;
+
+    // Refreshed rather than stacked, the same rule Enemy::ApplyMagicEffect follows
+    // for its own DOTs: a second dose is the clock going back to full, not a second
+    // poison queued behind the first.
+    if (venomTime <= 0.0f) venomTickTimer = Config::BountyVenomTick;
+
+    venomTime = Config::BountyVenomTime;
+
+    // The harder of the two blows carries. A weak follow-up must not be able to
+    // downgrade the poison the first one left.
+    if (damagePerTick > venomDamagePerTick) venomDamagePerTick = damagePerTick;
+}
+
+void Player::Stagger(float seconds)
+{
+    if ((seconds <= 0.0f) || !IsAlive()) return;
+
+    // Refreshed to the longer of the two, never summed - see Enemy::Stun, which is
+    // the same decision for the same reason
+    if (seconds > staggerTime) staggerTime = seconds;
 }
 
 void Player::UpdateAttacks(float delta, const bool pressedIn[2], const bool heldIn[2], const AttackStyle newStyles[2])
@@ -119,6 +200,29 @@ void Player::UpdateAttacks(float delta, const bool pressedIn[2], const bool held
 
     if ((styles[off] == AttackStyle::Block) && IsBlocking()) blockActiveTime += delta;
     else blockActiveTime = 0.0f;
+
+    //------------------------------------------------------------------------------
+    // The guard's charges, refilled while the arm is at rest.
+    //
+    // Here rather than on the frame the shield reaches full, because "at rest" is
+    // the one state that cannot be reached without the guard having come all the
+    // way down - which is exactly the condition a fresh set of charges is owed to.
+    // A refill on the way up would let a player who feathered the button hold an
+    // endless guard.
+    //------------------------------------------------------------------------------
+    if (attacks[off].phase == AttackState::Phase::Idle) blockChargesLeft = blockCharges;
+}
+
+void Player::SetBlockCharges(int charges)
+{
+    // Floored at one: a shield that stopped nothing at all would be a hand given up
+    // for a damage reduction, which is not what any row in the table says it is
+    blockCharges = (charges < 1) ? 1 : charges;
+
+    // A guard already up keeps what it has left, but can never hold more than the
+    // shield now in the hand is worth - swapping down mid-block must not carry the
+    // heavier shield's remaining charges onto the lighter one
+    if (blockChargesLeft > blockCharges) blockChargesLeft = blockCharges;
 }
 
 void Player::DropBlock()
@@ -200,9 +304,21 @@ bool Player::TakeDamageFrom(int amount, Vector3 source, bool melee)
         amount = parried ? 0 : (int)(amount*Config::BlockDamageScale);
         if (!parried && (amount < 1)) amount = 1;
 
-        // Whatever it stopped, the shield has done its one job for now - see
-        // the note on blockCooldown.
-        DropBlock();
+        //--------------------------------------------------------------------------
+        // A charge spent, and the guard dropped only when the last one goes.
+        //
+        // What separates the three shields - see WeaponStats::blockCharges. A guard
+        // that fell to the first blow made a shield worth least in the one situation
+        // it is for, which is a pack: the first skeleton was blocked and the two
+        // behind it were not.
+        //
+        // A PARRY spends nothing. It is a timed read rather than something the
+        // shield absorbed, and charging it would mean the better the player's timing
+        // the sooner their guard broke.
+        //--------------------------------------------------------------------------
+        if (!parried) blockChargesLeft--;
+
+        if (parried || (blockChargesLeft <= 0)) DropBlock();
     }
 
     const int before = health;
@@ -303,6 +419,11 @@ void Player::SetGearMods(const Modifiers &bonus)
     if (health > maxHealth) health = maxHealth;
 
     if (mana > MaxMana()) mana = MaxMana();
+}
+
+bool Player::CanOneHandTwoHanders() const
+{
+    return Combined().freeTwoHander > 0;
 }
 
 int Player::MaxHealth() const

@@ -26,5 +26,17 @@ class Arsenal;
 //
 // `index` of -1 otherwise empties `hand` and is allowed - the off hand is
 // where a shield or a free hand for casting comes from.
+//
+// --- The two-handed rule, and the trait that lifts it -----------------------------
+// `freeTwoHander` is Player::CanOneHandTwoHanders(). When true, a two-handed weapon
+// stops emptying the other hand and a two-hander already held stops being bumped out
+// by whatever lands beside it - which is the whole of what the captain's TITAN GRIP
+// sells.
+//
+// Passed in as a plain bool rather than reached for through the Player, because this
+// function deliberately knows about nothing except the two things it is arranging.
+// Every caller already has the player to hand; none of them had to grow a dependency
+// to answer this.
 //----------------------------------------------------------------------------------
-void EquipWeapon(ViewModel &viewModel, const Arsenal &arsenal, Hand hand, int index);
+void EquipWeapon(ViewModel &viewModel, const Arsenal &arsenal, Hand hand, int index,
+                 bool freeTwoHander = false);

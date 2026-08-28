@@ -1,6 +1,7 @@
 #include "combat/Weapon.h"
 
 #include "core/Config.h"
+#include <cstring>
 
 namespace
 {
@@ -53,42 +54,46 @@ namespace
         float critBonus;
         float stun;
         float knockback;
+
+        // Shields only - see WeaponStats::blockCharges. 0 on every other row, which
+        // the reader below turns into the default of 1.
+        int   blockCharges;
     };
 
     const StatOverride Overrides[] =
     {
         // Fast and short: it is a throwing knife, and it is the crit weapon.
         // The flat chance is its whole identity - nothing else on this row.
-        { "dagger_", 0.85f, 0.75f, 0.00f, 0.00f, 0, 0.00f, 0.00f, 0.10f, 0.0f, 0.0f },
+        { "dagger_", 0.85f, 0.75f, 0.00f, 0.00f, 0, 0.00f, 0.00f, 0.10f, 0.0f, 0.0f, 0 },
 
         // Slow, heavy, and it has the length. The reach IS its identity, so what
         // it carries beyond that is a flat bite on top rather than a behaviour
         // that would compete with standing further away than everyone.
-        { "halberd", 1.15f, 1.30f, 0.12f, 0.00f, 0, 0.00f, 0.00f, 0.00f, 0.0f, 5.0f },
+        { "halberd", 1.15f, 1.30f, 0.12f, 0.00f, 0, 0.00f, 0.00f, 0.00f, 0.0f, 5.0f, 0 },
 
         // The greatsword, and the one weapon that pays you to stay in. Ten percent
         // lifesteal against a swing that already hits hardest is a real fraction of
         // what a fight deals back - enough to build around, nowhere near enough to
         // stand still in, and it returns nothing at all on the swings that miss.
-        { "sword_E", 1.05f, 1.25f, 0.16f, 0.00f, 0, 0.00f, 0.10f, 0.00f, 0.0f, 0.0f },
+        { "sword_E", 1.05f, 1.25f, 0.16f, 0.00f, 0, 0.00f, 0.10f, 0.00f, 0.0f, 0.0f, 0 },
 
         // Short haul, heavy head, and the only thing here that stops an enemy
         // outright. Six tenths of a second is most of a Warrior's gap between
         // swings: it does not kill anything, it decides who swings next.
-        { "hammer_", 0.95f, 1.20f, 0.08f, 0.00f, 0, 0.00f, 0.00f, 0.00f, 0.6f, 4.0f },
+        { "hammer_", 0.95f, 1.20f, 0.08f, 0.00f, 0, 0.00f, 0.00f, 0.00f, 0.6f, 4.0f, 0 },
 
         // The middle of the table on every axis, which is what an axe is for. A
         // little of the shove and a little of the bite, none of the rest.
-        { "axe_",    1.00f, 1.10f, 0.08f, 0.00f, 0, 0.00f, 0.00f, 0.00f, 0.0f, 3.0f },
+        { "axe_",    1.00f, 1.10f, 0.08f, 0.00f, 0, 0.00f, 0.00f, 0.00f, 0.0f, 3.0f, 0 },
 
         // The spear: reach without the halberd's weight. Its trade is that it
         // thrusts, and a thrust catches one body where a sweep catches three.
-        { "spear_",  1.10f, 1.00f, 0.04f, 0.00f, 0, 0.00f, 0.00f, 0.04f, 0.0f, 0.0f },
+        { "spear_",  1.10f, 1.00f, 0.04f, 0.00f, 0, 0.00f, 0.00f, 0.04f, 0.0f, 0.0f, 0 },
 
         // The rapier. Thrust, quick, and the second crit weapon - lighter on the
         // flat chance than the dagger, so it opens a build the dagger already owns
         // rather than competing with it for the same one.
-        { "sword_D", 1.00f, 0.95f, 0.04f, 0.00f, 0, 0.00f, 0.00f, 0.06f, 0.0f, 0.0f },
+        { "sword_D", 1.00f, 0.95f, 0.04f, 0.00f, 0, 0.00f, 0.00f, 0.06f, 0.0f, 0.0f, 0 },
 
         //----------------------------------------------------------------------
         // The casters. Arcane and nothing else, and the reason is the same reason
@@ -102,15 +107,95 @@ namespace
         // enforcement in Game::UpdateWorld) where the staff, now one-handed too,
         // no longer has to give up an off hand to be worth carrying at all.
         //----------------------------------------------------------------------
-        { "staff_",  1.00f, 1.00f, 0.00f, 0.24f, 5, 0.00f, 0.00f, 0.00f, 0.0f, 0.0f },
-        { "wand_",   1.00f, 1.00f, 0.00f, 0.16f, 4, 0.00f, 0.00f, 0.00f, 0.0f, 0.0f },
+        { "staff_",  1.00f, 1.00f, 0.00f, 0.24f, 5, 0.00f, 0.00f, 0.00f, 0.0f, 0.0f, 0 },
+        { "wand_",   1.00f, 1.00f, 0.00f, 0.16f, 4, 0.00f, 0.00f, 0.00f, 0.0f, 0.0f, 0 },
 
         // A shield is not a weapon and has no damage worth scaling, so what it
         // carries is what standing behind it is worth - not a bigger health pool,
         // less of every blow actually landing. See the note on Modifiers::
         // damageTaken and the long one at the top of Modifiers.h for why this is
         // no longer a stat.
-        { "shield_", 1.00f, 1.00f, 0.00f, 0.00f, 0, -0.15f, 0.00f, 0.00f, 0.0f, 0.0f },
+        //----------------------------------------------------------------------
+        // The three shields, and the one column that tells them apart.
+        //
+        // They shared a single row until now - identical reduction, identical
+        // everything - so "which shield" was a question about the picture. What
+        // separates them is how many blows the guard eats before it is knocked
+        // down (see WeaponStats::blockCharges), which is the stat that matters in
+        // the situation a shield is actually for: a pack, where a one-blow guard
+        // stops the first skeleton and neither of the two behind it.
+        //
+        // The reduction climbs with the charges rather than trading against them.
+        // A heavier shield is simply a better shield and is priced as one - the
+        // trade is that it costs a whole hand either way, and against a single
+        // target the extra charges do nothing at all.
+        //
+        // These sit ABOVE the shared "shield_" row because FindOverride takes the
+        // first prefix that matches.
+        //----------------------------------------------------------------------
+        { "shield_A", 1.00f, 1.00f, 0.00f, 0.00f, 0, -0.15f, 0.00f, 0.00f, 0.0f, 0.0f, 1 },
+        { "shield_B", 1.00f, 1.00f, 0.00f, 0.00f, 0, -0.22f, 0.00f, 0.00f, 0.0f, 0.0f, 2 },
+        { "shield_C", 1.00f, 1.00f, 0.00f, 0.00f, 0, -0.30f, 0.00f, 0.00f, 0.0f, 0.0f, 3 },
+
+        // Anything else named shield_, so a fourth dropped into the pack is a
+        // working shield on the day it arrives rather than a weapon with no row.
+        { "shield_", 1.00f, 1.00f, 0.00f, 0.00f, 0, -0.15f, 0.00f, 0.00f, 0.0f, 0.0f, 1 },
+    };
+
+    //------------------------------------------------------------------------------
+    // Model name to display name - see the note on WeaponDisplayName.
+    //
+    // EXACT names rather than prefixes, unlike the stat table above: the whole point
+    // is to tell sword_A from sword_D, and a prefix match would give all five swords
+    // the same word. Each name says what the SHAPE is, so a player reading the shop
+    // knows what they are about to hold before the icon finishes turning.
+    //
+    // They also carry the weapon's identity where it has one, because the stat table
+    // gave several of these a behaviour and the name is the only place the player
+    // meets it first: the rapier and the dirk are the two crit weapons, the reaver
+    // is the one that drinks, the mauls are the ones that stun.
+    //------------------------------------------------------------------------------
+    struct DisplayName
+    {
+        const char *model;
+        const char *shown;
+    };
+
+    const DisplayName DisplayNames[] =
+    {
+        // Swords. A through C are the plain line; D is the rapier and E the
+        // greatsword, which is where the stat table splits them too.
+        { "sword_A", "Arming Sword" },
+        { "sword_B", "Broadsword" },
+        { "sword_C", "Falchion" },
+        { "sword_D", "Rapier" },
+        { "sword_E", "Reaver" },
+
+        { "axe_A",   "Hatchet" },
+        { "axe_B",   "War Axe" },
+        { "axe_C",   "Bearded Axe" },
+
+        { "hammer_A", "Mallet" },
+        { "hammer_B", "War Maul" },
+        { "hammer_C", "Skullbreaker" },
+
+        { "dagger_A", "Dirk" },
+        { "dagger_B", "Stiletto" },
+
+        { "spear_A", "Pike" },
+        { "halberd", "Halberd" },
+
+        // The casters
+        { "staff_A", "Oaken Stave" },
+        { "staff_B", "Runed Stave" },
+        { "wand_A",  "Ashwood Wand" },
+
+        // The shields, named for what separates them - see the stat rows above.
+        // Buckler, kite, tower: smallest to largest, which is also one charge to
+        // three, so the name is the stat.
+        { "shield_A", "Buckler" },
+        { "shield_B", "Kite Shield" },
+        { "shield_C", "Tower Shield" },
     };
 
     const StatOverride *FindOverride(const std::string &name)
@@ -151,6 +236,20 @@ namespace
 
         return false;
     }
+}
+
+const char *WeaponDisplayName(const char *modelName)
+{
+    if (modelName == nullptr) return "";
+
+    for (const DisplayName &entry : DisplayNames)
+    {
+        if (strcmp(modelName, entry.model) == 0) return entry.shown;
+    }
+
+    // Not in the table - see the note on the declaration. Showing the filename is
+    // the honest answer: it is wrong in a way somebody will notice and fix.
+    return modelName;
 }
 
 std::string WeaponTagsText(unsigned tags)
@@ -239,6 +338,10 @@ WeaponStats StatsFor(const std::string &name, AttackStyle style, float modelHeig
         stats.bonus.spellPower = tweak->spellPower;
         stats.bonus.flatMana = tweak->flatMana;
         stats.bonus.damageTaken = tweak->damageTaken;
+
+    // Zero on every non-shield row, which is not a legal charge count - a shield
+    // that stopped nothing would be a hand given up for a damage reduction alone
+    if (tweak->blockCharges > 0) stats.blockCharges = tweak->blockCharges;
 
         stats.lifesteal = tweak->lifesteal;
         stats.critBonus = tweak->critBonus;

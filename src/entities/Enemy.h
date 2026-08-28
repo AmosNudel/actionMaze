@@ -47,6 +47,47 @@ enum class EnemyAnim
 // body.radius - rotation free, which keeps every distance test cheap and means
 // melee never needs to know which way an enemy is facing.
 //----------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------
+// What makes a bounty a different fight rather than a longer one.
+//
+// Only a BOUNTY event's champion carries these - see EventManager and the tuning
+// block in Config.h. Every other body in the game has a mask of zero, which is what
+// keeps the combat paths free of "is this a bounty" questions: each trait's own code
+// is one test against a mask that is almost always empty.
+//
+// Six, and each asks a different question the player can actually answer:
+//
+//   SAVAGE     its blows crit far more often. The answer is not to be standing
+//              there for the third one.
+//   VENOM      its blows leave a poison that keeps ticking after you disengage -
+//              the one thing here that punishes trading hits instead of spacing.
+//   CRUSHING   a share of its blows stagger you outright. The answer is spacing:
+//              a stagger taken at its reach is a free second blow.
+//   ELUSIVE    it phases out on a cycle and takes nothing while it does. The answer
+//              is to stop swinging and reposition.
+//   SUMMONER   it calls bodies in. The answer is to clear them or eat the extra
+//              pressure - the bounty is no longer the only thing in the room.
+//   GRAVITY    a constant pull toward it while you are near. The answer is to fight
+//              the stick rather than stand and trade at the gap it wants.
+//
+// Stored as a bitmask of (1 << BountyTrait) so a body can carry any combination and
+// every test is one AND.
+//----------------------------------------------------------------------------------
+enum class BountyTrait
+{
+    Savage = 0,
+    Venom,
+    Crushing,
+    Elusive,
+    Summoner,
+    Gravity,
+
+    Count
+};
+
+// A trait's short name, for the champion's name plate. Empty for out of range.
+const char *BountyTraitName(BountyTrait trait);
+
 struct Enemy
 {
     Body body;
@@ -222,6 +263,41 @@ struct Enemy
 
     float blindTime = 0.0f;         // FLASH - holds `detection` at zero while it runs
     float fleeTime = 0.0f;          // TOXIN's panic - see EnemyManager's flee branch
+
+    //------------------------------------------------------------------------------
+    // The bounty traits this body rolled, as a bitmask of (1 << BountyTrait).
+    //
+    // Zero on everything that is not a bounty event's champion, which is the whole
+    // reason the combat paths can read it unconditionally: a trait's code is one
+    // test against a mask that is empty on every ordinary skeleton in the room.
+    //------------------------------------------------------------------------------
+    unsigned char bountyTraits = 0;
+
+    bool Has(BountyTrait trait) const
+    {
+        return (bountyTraits & (unsigned char)(1u << (int)trait)) != 0;
+    }
+
+    // ELUSIVE's clock. `elusiveOpen` counts DOWN while the window is up and the body
+    // takes nothing; `elusiveCycle` counts down to the next one. Starts closed - see
+    // Config::BountyElusiveCycle.
+    float elusiveOpen = 0.0f;
+    float elusiveCycle = 0.0f;
+
+    bool IsPhased() const { return elusiveOpen > 0.0f; }
+
+    // SUMMONER's clock, counting down to the next add
+    float summonCooldown = 0.0f;
+
+    //------------------------------------------------------------------------------
+    // The id of the SUMMONER that called this body in, or 0.
+    //
+    // An id rather than a pointer for the reason `eventTag` is one: the enemy vector
+    // is compacted every frame as the dead are swept up, and anything holding a
+    // pointer into it would be holding a different body a moment later. It exists
+    // only so a summoner can count what it already has standing.
+    //------------------------------------------------------------------------------
+    int summonedBy = 0;
 
     // Guard. `blocking` is the decision the AI made this frame, which is what the
     // feet and the state machine read; IsBlocking() is whether the pose is
@@ -504,7 +580,17 @@ struct Enemy
 
     // Damage with nowhere to come from - a fall, a trap, a debug key. A guard
     // cannot be pointed at any of those, so none of it is blocked.
-    void TakeDamage(int amount);
+    //------------------------------------------------------------------------------
+    // Damage from no particular direction - a DOT tick, a debug key.
+    //
+    // `poiseScale` is how much of `amount` counts toward a champion's poise meter,
+    // and `canStagger` is whether this blow may play the flinch at all. They are
+    // separate questions and the DOTs answer them differently: a burn FILLS the
+    // meter (so the sword that lands next breaks the body sooner) but may never
+    // spend it, because a tick that flinched would stunlock anything the player set
+    // alight and stop it ever reaching them. See the note at the flinch itself.
+    //------------------------------------------------------------------------------
+    void TakeDamage(int amount, float poiseScale = 1.0f, bool canStagger = true);
     //------------------------------------------------------------------------------
     // Damage from somewhere, which a raised guard can be pointed at. This is what
     // combat calls; the arc test is the same InCone the player's shield uses.

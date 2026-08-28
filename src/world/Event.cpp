@@ -1,5 +1,6 @@
 #include "world/Event.h"
 
+#include "audio/Sfx.h"
 #include "core/Config.h"
 #include "entities/EnemyManager.h"
 #include "entities/Player.h"
@@ -18,6 +19,56 @@
 
 namespace
 {
+
+//----------------------------------------------------------------------------------
+// Two of the six behaviours, drawn without replacement - see entities/Enemy.h.
+//
+// Re-rolling rather than shuffling a list: on a table this short a collision settles
+// in a couple of draws, and the attempt cap is only there so a table trimmed below
+// BountyTraitsPer cannot spin forever.
+//
+// The two clocks are set here rather than left at zero on purpose. ELUSIVE starts
+// CLOSED a full cycle from its first window, and SUMMONER waits half a cycle before
+// its first add: a bounty that phased out or summoned on the frame it appeared would
+// teach the player nothing about the rhythm they have to play around, which is the
+// whole of what those two traits are.
+//----------------------------------------------------------------------------------
+void RollBountyTraits(Enemy &enemy)
+{
+    enemy.bountyTraits = 0;
+
+    const int count = (int)BountyTrait::Count;
+
+    for (int picked = 0; (picked < Config::BountyTraitsPer) && (picked < count); ++picked)
+    {
+        for (int attempt = 0; attempt < 32; ++attempt)
+        {
+            const BountyTrait trait = (BountyTrait)GetRandomValue(0, count - 1);
+
+            if (enemy.Has(trait)) continue;
+
+            enemy.bountyTraits |= (unsigned char)(1u << (int)trait);
+            break;
+        }
+    }
+
+    enemy.elusiveOpen = 0.0f;
+    enemy.elusiveCycle = Config::BountyElusiveCycle;
+
+    enemy.summonCooldown = enemy.Has(BountyTrait::Summoner) ? (Config::BountySummonGap*0.5f)
+                                                            : 0.0f;
+
+    // Walked rather than formatted, because "two of six" is a fact about the loop
+    // above and not a pair of named slots - a printf with two %s would have to pick
+    // which two, which is exactly the branch this table exists to avoid.
+    for (int i = 0; i < count; ++i)
+    {
+        if (!enemy.Has((BountyTrait)i)) continue;
+
+        TraceLog(LOG_INFO, "BOUNTY: %s carries %s", Config::EnemyTypes[enemy.type].name,
+                 BountyTraitName((BountyTrait)i));
+    }
+}
     //------------------------------------------------------------------------------
     // The kinds, in EventKind order.
     //
@@ -180,13 +231,32 @@ void EventManager::Place(const Level &level, int depth)
 
     const std::vector<Room> &rooms = level.Grid().Rooms();
 
+    //------------------------------------------------------------------------------
+    // The stocked first floor takes one of EVERY kind, in order, rather than rolling
+    // - see Config::StockedFirstFloor. The map gave it one room per kind
+    // (Config::StockedEventCount), and this is the half that fills them.
+    //
+    // The assert is the seam between the two: Map.cpp cannot see this enum, so the
+    // count it reserves rooms against is a plain number in Config, and a fifth kind
+    // added here stops the build until that number is raised to match.
+    //------------------------------------------------------------------------------
+    static_assert(Config::StockedEventCount == (int)EventKind::Count,
+                  "Config::StockedEventCount and the EventKind enum are out of step");
+
+    const bool stocked = level.Grid().Stocked();
+
+    int next = 0;
+
     for (int index : level.Grid().EventRooms())
     {
         if ((index < 0) || (index >= (int)rooms.size())) continue;
 
         Event event;
 
-        event.kind = (EventKind)GetRandomValue(0, (int)EventKind::Count - 1);
+        event.kind = stocked ? (EventKind)(next%(int)EventKind::Count)
+                             : (EventKind)GetRandomValue(0, (int)EventKind::Count - 1);
+
+        next++;
         event.phase = EventPhase::Pending;
         event.room = index;
         event.at = level.Grid().CellCenter(rooms[index].CenterX(), rooms[index].CenterZ());
@@ -455,6 +525,8 @@ void EventManager::TryStart(Event &event, const Level &level, const Player &play
 
                 enemy.maxHealth = (int)(enemy.maxHealth*Config::BountyHealthScale);
                 enemy.health = enemy.maxHealth;
+
+                RollBountyTraits(enemy);
                 break;
             }
 
@@ -769,6 +841,12 @@ void EventManager::UpdateSeal(Event &event, float delta, Player &player, VfxMana
         event.collected++;
 
         vfx.Spawn(VfxKind::Splash, rune.at, 1.2f, EventAt(EventKind::Seal).colour);
+
+        // The one objective in the game the player collects by hand, and it had no
+        // sound at all - so the only confirmation a rune had registered was the
+        // counter on the HUD, which is the last place someone running through a
+        // bombardment is looking. Full level: it is happening at their feet.
+        GameSfx::Play(Sfx::LootRare);
     }
 
     if (event.collected >= (int)event.runes.size())

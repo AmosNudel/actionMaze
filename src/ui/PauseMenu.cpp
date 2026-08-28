@@ -1,3 +1,4 @@
+#include "audio/Sfx.h"
 #include "ui/PauseMenu.h"
 
 #include "ui/UiText.h"
@@ -144,6 +145,10 @@ PauseMenu::Choice PauseMenu::Update()
     }
 
     if (!chosen) return Choice::None;
+
+    // The entry being taken. Resume gets its own sound instead, because it is the
+    // menu CLOSING and that is the same event Escape produces - see UpdateScreens.
+    if (cursor != (int)Choice::Resume - 1) GameSfx::Play(Sfx::UiConfirm);
 
     // The enum runs None, Resume, Character, Options, Quit - so entry i is i + 1.
     // Tied to the table's order on purpose: adding an entry means adding both, and

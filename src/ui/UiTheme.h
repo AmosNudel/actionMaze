@@ -92,7 +92,36 @@ float UiScale();
 // returns more than `maxScale`, because a page designed at 450px tall stretched onto
 // a 1440p monitor at 3.2x is four controls the size of dinner plates.
 //----------------------------------------------------------------------------------
-void UiPageBackdrop();
+//----------------------------------------------------------------------------------
+// The dark plate every fullscreen page lies on.
+//
+// `alpha` is how much of what is BEHIND it survives, and the two callers want very
+// different answers. A page over a live world - the pause menu, the shop, the
+// character sheet - wants the world almost gone: it is a modal page and a legible
+// dungeon behind it reads as something the player could still be acting on. A page
+// over the FRONT END wants the opposite, because what is behind it there is the menu
+// sky (see ui/MenuBackdrop.h), which is the only picture those pages have.
+//
+// The default is the modal one, so every in-game page keeps exactly what it had.
+//----------------------------------------------------------------------------------
+void UiPageBackdrop(float alpha = 0.965f, Color colour = UiBg);
+
+// What a front-end page passes: enough to read text against, little enough that the
+// sky behind it is still a picture rather than a tint.
+constexpr float UiFrontBackdrop = 0.52f;
+
+//----------------------------------------------------------------------------------
+// ...and in a warm dark rather than UiBg's blue.
+//
+// The plate is doing half the colour work on the front end, which is not obvious
+// until it is wrong: the menu sky is tinted red (see ui/MenuBackdrop.h) and then
+// half covered by a dark BLUE sheet, which pulls the whole thing back to the neutral
+// grey it was trying to leave. Warming the plate as well is what makes the two agree.
+//
+// Still dark enough to read white text against - it is the same value as UiBg, only
+// rotated toward the red the dungeon's own sky is.
+//----------------------------------------------------------------------------------
+constexpr Color UiFrontBg = { 34, 18, 20, 255 };
 float UiPageScale(float designHeight, float maxScale);
 
 // A panel: a filled plate with a hairline edge, the shape every block on a page is.

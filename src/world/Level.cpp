@@ -365,7 +365,9 @@ void Level::Load(AssetManager &assets, unsigned int seed)
     if (wallBoxReady) UnloadModel(wallBox);
     wallBoxReady = false;
 
-    map.Generate(seed);
+    // `depth` was incremented at the top of this function, so floor 1 is 1 here -
+    // which is what Config::StockedFirstFloor keys off
+    map.Generate(seed, depth);
 
     spawn = map.SpawnPoint();
     portal = map.PortalPoint();

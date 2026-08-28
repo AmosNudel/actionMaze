@@ -277,6 +277,13 @@ private:
     // ordinary think applies to it, so it does not run any of it.
     void UpdateRaider(Enemy &enemy, float delta, Level &level);
 
+    // A bounty's per-frame behaviours - ELUSIVE's cycle, SUMMONER's adds and
+    // GRAVITY's pull. See the definition for why these run through a stun.
+    void UpdateBountyTraits(Enemy &enemy, float delta, Level &level, Player &player);
+
+    // Living bodies a given SUMMONER has standing, for its own cap
+    int SummonedAlive(int ownerId) const;
+
     //------------------------------------------------------------------------------
     // Would channelling be worth it right now?
     //
@@ -474,6 +481,11 @@ private:
     Capsule BladeFor(const Enemy &enemy) const;
 
     std::vector<Enemy> enemies;
+
+    // The floor's depth, remembered from PopulateCamps. Only a SUMMONER needs it -
+    // it is the one thing here that spawns a body outside the placement pass, and
+    // MakeEnemy rolls a rank off the depth it is given.
+    int floorDepth = 1;
     // Never reused, never reset by RemoveDead: an id that came back round would let
     // a swing that already cut a dead enemy refuse to cut the one that replaced it
     int nextId = 1;

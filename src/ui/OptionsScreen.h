@@ -31,7 +31,22 @@ struct OptionsView
 {
     bool fullscreenOn = false;
     bool muted = false;
+
+    //------------------------------------------------------------------------------
+    // Three levels, not one, because they are three different decisions.
+    //
+    // MASTER is how loud the game is against everything else on the machine. MUSIC
+    // and EFFECTS are the mix INSIDE that - and the pair exists because the two are
+    // balanced against each other rather than set independently (see the note on
+    // MusicVolume in audio/Music.cpp), so a player who wants the score down without
+    // losing the sound of a swing landing has to be able to say so.
+    //
+    // Mute is separate again, and above all three: it is "not right now", and it
+    // spends none of them.
+    //------------------------------------------------------------------------------
     float volume = 1.0f;
+    float music = 1.0f;
+    float effects = 1.0f;
 
     // Where BACK goes, in the caller's own words. The page is opened from the main
     // menu and from a paused run, and a button that said "BACK TO MENU" over a
@@ -42,7 +57,18 @@ struct OptionsView
 class OptionsScreen
 {
 public:
-    enum class Choice { None, Back, ToggleFullscreen, ToggleMute, VolumeDown, VolumeUp };
+    //------------------------------------------------------------------------------
+    // What the page reports. The three level rows each report their own pair rather
+    // than one "a slider moved" plus an index, so the caller reads which control was
+    // pressed straight off the enum and cannot mis-order the rows against it.
+    //------------------------------------------------------------------------------
+    enum class Choice
+    {
+        None, Back, ToggleFullscreen, ToggleMute,
+        VolumeDown, VolumeUp,
+        MusicDown, MusicUp,
+        EffectsDown, EffectsUp
+    };
 
     // See MainMenu::Show - the click that opened this page is not a click in it.
     void Show();
@@ -50,7 +76,13 @@ public:
     Choice Update();
     void Draw(const OptionsView &view) const;
 
-private:
+    //------------------------------------------------------------------------------
+    // The page, in screen pixels. One struct, built once, read by both the click test
+    // and the draw - because a control drawn in one place and clicked in another is
+    // the one bug a settings page can have.
+    //
+    // Public only for `Levels`, which the row-name table in the .cpp is sized by.
+    //------------------------------------------------------------------------------
     struct Layout
     {
         float ls = 1.0f;
@@ -58,14 +90,21 @@ private:
         Rectangle page{};
         Rectangle fullscreenRow{};
         Rectangle muteRow{};
-        Rectangle volumeRow{};
-        Rectangle volumeMinus{};
-        Rectangle volumePlus{};
+        // The three level rows and their steppers, in the order they are drawn.
+        // Walked as an array rather than named one by one - see Measure - so a
+        // fourth level is one more row and not four more members.
+        static constexpr int Levels = 3;
+
+        Rectangle levelRow[Levels]{};
+        Rectangle levelMinus[Levels]{};
+        Rectangle levelPlus[Levels]{};
+
         Rectangle back{};
 
         float titleY = 0.0f;
     };
 
+private:
     static Layout Measure();
 
     bool justShown = false;

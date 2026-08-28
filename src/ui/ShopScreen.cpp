@@ -1,5 +1,8 @@
 #include "ui/ShopScreen.h"
 
+#include "audio/Sfx.h"
+#include "render/ViewModel.h"
+
 #include "combat/Magic.h"
 #include "combat/Weapon.h"
 #include "entities/Player.h"
@@ -27,6 +30,17 @@ namespace
     constexpr float RowPad    = 14.0f;
     constexpr float ButtonW   = 130.0f;
     constexpr float ButtonH   = 34.0f;
+
+    // The merchant's SELL button, which sits to the left of the primary one on an
+    // owned weapon's row - see Row::sellable. Narrower, because it carries a shorter
+    // label and because the row it shares has to keep room for the weapon's stats.
+    constexpr float SellW     = 96.0f;
+    constexpr float SellGap   = 8.0f;
+
+    // How far ABOVE the row's centre line the buttons sit, so the strip under them
+    // is deep enough to hold a refusal note - see the note draw. A 34-high button
+    // centred in a 52-high row leaves 9 either side, and a note needs about 11.
+    constexpr float ButtonLift = 5.0f;
 
     constexpr float TitleTop  = 8.0f;
     constexpr float ListTop   = 96.0f;
@@ -91,6 +105,20 @@ Rectangle ShopScreen::Layout::RowAt(int slot) const
     return { list.x, list.y + slot*step, list.width, rowHeight };
 }
 
+Rectangle ShopScreen::Layout::MainButtonIn(Rectangle box) const
+{
+    return { box.x + box.width - (ButtonW + RowPad)*ls,
+             box.y + (box.height - ButtonH*ls)*0.5f - ButtonLift*ls,
+             ButtonW*ls, ButtonH*ls };
+}
+
+Rectangle ShopScreen::Layout::SellButtonIn(Rectangle box) const
+{
+    const Rectangle main = MainButtonIn(box);
+
+    return { main.x - (SellGap + SellW)*ls, main.y, SellW*ls, ButtonH*ls };
+}
+
 int ShopScreen::ClampScroll(int rowCount, int visible) const
 {
     const int most = rowCount - visible;
@@ -114,7 +142,7 @@ int ShopScreen::ClampScroll(int rowCount, int visible) const
 //----------------------------------------------------------------------------------
 void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
                            const Spellbook &spells, const TraitLoadout &traits,
-                           std::vector<Row> &rows) const
+                           const ViewModel &viewModel, std::vector<Row> &rows) const
 {
     rows.clear();
 
@@ -157,8 +185,21 @@ void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
                     // player is actually choosing between, and forcing them to
                     // open the character sheet to see either was the shop
                     // showing a name and a price and calling that a decision.
-                    const std::string statText = TextFormat("%i dmg   %.1f reach",
-                                                            arsenal.DamageAt(i), arsenal.ReachAt(i));
+                    //--------------------------------------------------------------
+                    // A shield's row reads differently, because its numbers are
+                    // different numbers. Damage on a thing that never swings is a
+                    // figure the player would have to learn to ignore, and the one
+                    // stat that actually separates the three - how many blows the
+                    // guard eats - was nowhere on the page at all.
+                    //--------------------------------------------------------------
+                    const bool shield = (arsenal.TagsAt(i) & TagBlocking) != 0;
+
+                    const std::string statText =
+                        shield ? std::string(TextFormat("blocks %i   %.0f%% less taken",
+                                                        arsenal.BlockChargesAt(i),
+                                                        -arsenal.DamageTakenAt(i)*100.0f))
+                               : std::string(TextFormat("%i dmg   %.1f reach",
+                                                        arsenal.DamageAt(i), arsenal.ReachAt(i)));
 
                     row.name = arsenal.NameAt(i);
                     row.id = i;
@@ -173,27 +214,76 @@ void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
                         row.enabled = purse.CanAfford(Currency::Coins, row.price);
                         row.note = row.enabled ? "" : "not enough coins";
                     }
-                    else if (arsenal.CanForge(i))
-                    {
-                        row.deal = Deal::Upgrade;
-                        row.price = arsenal.ForgePrice(i);
-                        row.detail = TextFormat("%s    forged %i / %i    +%.0f%% damage    %s",
-                                                statText.c_str(), arsenal.Forge(i), WeaponForgeMax,
-                                                ((arsenal.DamageMult(i) - 1.0f)
-                                                 + arsenal.HeldBonus(i).damageDealt)*100.0f,
-                                                tagText.c_str());
-                        row.enabled = purse.CanAfford(Currency::Coins, row.price);
-                        row.note = row.enabled ? "" : "not enough coins";
-                    }
                     else
                     {
-                        row.deal = Deal::None;
-                        row.detail = TextFormat("%s    forged %i / %i    +%.0f%% damage    %s",
-                                                statText.c_str(), WeaponForgeMax, WeaponForgeMax,
-                                                ((arsenal.DamageMult(i) - 1.0f)
-                                                 + arsenal.HeldBonus(i).damageDealt)*100.0f,
-                                                tagText.c_str());
-                        row.note = "fully forged";
+                        //------------------------------------------------------
+                        // An owned row: what it is, how far it is forged, and the
+                        // tags. Built once for both the forgeable and the maxed
+                        // case, which differ only in the level printed and whether
+                        // there is a button - writing it twice was how the two
+                        // drifted into saying different things about a shield.
+                        //
+                        // The damage line is dropped for shields. A forge level on
+                        // one raises the same DamageMult every weapon has, but a
+                        // shield never swings, so "+40% damage" on a buckler is a
+                        // true number about something that never happens.
+                        //------------------------------------------------------
+                        const int level = arsenal.CanForge(i) ? arsenal.Forge(i)
+                                                              : WeaponForgeMax;
+
+                        const std::string forged =
+                            TextFormat("forged %i / %i", level, WeaponForgeMax);
+
+                        const std::string gain =
+                            shield ? std::string()
+                                   : std::string(TextFormat("    +%.0f%% damage",
+                                        ((arsenal.DamageMult(i) - 1.0f)
+                                         + arsenal.HeldBonus(i).damageDealt)*100.0f));
+
+                        row.detail = statText + "    " + forged + gain
+                                   + (tagText.empty() ? "" : ("    " + tagText));
+
+                        if (arsenal.CanForge(i))
+                        {
+                            row.deal = Deal::Upgrade;
+                            row.price = arsenal.ForgePrice(i);
+                            row.enabled = purse.CanAfford(Currency::Coins, row.price);
+                            row.note = row.enabled ? "" : "not enough coins";
+                        }
+                        else
+                        {
+                            row.deal = Deal::None;
+                            row.note = "fully forged";
+                        }
+                    }
+
+                    //------------------------------------------------------------------
+                    // The second button, on every owned weapon whatever its primary
+                    // deal turned out to be - see Row::sellable.
+                    //
+                    // Two things are refused, and both are refused rather than worked
+                    // around because working around either would move something the
+                    // player did not ask to move:
+                    //
+                    //   IN HAND    the Arsenal cannot unequip - it has never heard of
+                    //              a ViewModel - and selling out from under a hand
+                    //              would leave the wheel pointing at a weapon that no
+                    //              longer exists. The player takes it off first.
+                    //   THE LAST   the main hand may never be empty (see Equip.h), and
+                    //              a run that sold its only weapon would have nothing
+                    //              legal to put there.
+                    //------------------------------------------------------------------
+                    if (owns)
+                    {
+                        const bool held = (viewModel.SlotIndex(Hand::Right) == i) ||
+                                          (viewModel.SlotIndex(Hand::Left) == i);
+
+                        row.sellable = true;
+                        row.sellPrice = arsenal.SellPrice(i);
+                        row.sellEnabled = !held && (arsenal.OwnedCount() > 1);
+
+                        row.sellNote = held ? "in hand"
+                                     : (arsenal.OwnedCount() > 1) ? "" : "your only weapon";
                     }
 
                     rows.push_back(row);
@@ -328,7 +418,7 @@ void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
 }
 
 void ShopScreen::Update(Player &player, Arsenal &arsenal, Spellbook &spells,
-                        TraitLoadout &traits)
+                        TraitLoadout &traits, const ViewModel &viewModel)
 {
     if (!open) return;
 
@@ -340,7 +430,7 @@ void ShopScreen::Update(Player &player, Arsenal &arsenal, Spellbook &spells,
 
     std::vector<Row> rows;
 
-    BuildRows(player, arsenal, spells, traits, rows);
+    BuildRows(player, arsenal, spells, traits, viewModel, rows);
 
     // The wheel scrolls the list. Read before the click, so a frame that does both
     // acts on the row the player was looking at rather than the one that slid under
@@ -368,8 +458,40 @@ void ShopScreen::Update(Player &player, Arsenal &arsenal, Spellbook &spells,
 
         const Row &row = rows[(size_t)index];
 
-        if (!row.enabled) continue;
-        if (!in.Over(page.RowAt(slot))) continue;
+        const Rectangle box = page.RowAt(slot);
+
+        if (!in.Over(box)) continue;
+
+        //----------------------------------------------------------------------
+        // The SELL button first, because it sits INSIDE the row and a row-level
+        // test would swallow it - the same ordering the options page uses for its
+        // steppers, and for the same reason.
+        //----------------------------------------------------------------------
+        if (row.sellable && in.Over(page.SellButtonIn(box)))
+        {
+            if (!row.sellEnabled)
+            {
+                GameSfx::Play(Sfx::UiDenied);
+                return;
+            }
+
+            // Paid before it is taken, so a figure that moved between the build and
+            // the click cannot hand over coins for a weapon that was never removed
+            player.purse.Add(Currency::Coins, row.sellPrice);
+            arsenal.Take(row.id);
+
+            GameSfx::Play(Sfx::UiBuy);
+            return;
+        }
+
+        // A row is only enabled when the purse can actually cover it, so a click on
+        // a dead one is exactly the "you cannot afford that" the player needs told -
+        // and the only place in the game with a use for the refusal sound.
+        if (!row.enabled)
+        {
+            GameSfx::Play(Sfx::UiDenied);
+            continue;
+        }
 
         //----------------------------------------------------------------------
         // The one place anything crosses the counter.
@@ -425,6 +547,11 @@ void ShopScreen::Update(Player &player, Arsenal &arsenal, Spellbook &spells,
                 break;
         }
 
+        // One sound for the whole counter rather than one per branch. Money changing
+        // hands is money changing hands, and a respec - which is free, and the only
+        // row here that trades nothing - takes the plainer confirm instead.
+        GameSfx::Play((row.deal == Deal::Respec) ? Sfx::UiConfirm : Sfx::UiBuy);
+
         // One row per click, whatever it was. A click that fell through to a second
         // row would spend twice on a list that has just changed shape underneath it.
         return;
@@ -432,7 +559,8 @@ void ShopScreen::Update(Player &player, Arsenal &arsenal, Spellbook &spells,
 }
 
 void ShopScreen::Draw(const Player &player, const Arsenal &arsenal, const Spellbook &spells,
-                      const TraitLoadout &traits, WeaponPreview &preview) const
+                      const TraitLoadout &traits, WeaponPreview &preview,
+                      const ViewModel &viewModel) const
 {
     if (!open) return;
 
@@ -445,7 +573,7 @@ void ShopScreen::Draw(const Player &player, const Arsenal &arsenal, const Spellb
 
     std::vector<Row> rows;
 
-    BuildRows(player, arsenal, spells, traits, rows);
+    BuildRows(player, arsenal, spells, traits, viewModel, rows);
 
     const int at = ClampScroll((int)rows.size(), page.visible);
 
@@ -510,10 +638,21 @@ void ShopScreen::Draw(const Player &player, const Arsenal &arsenal, const Spellb
             const float iconSize = box.height - 6.0f*ls;
             const Rectangle icon = { box.x + 3.0f*ls, box.y + 3.0f*ls, iconSize, iconSize };
 
+            // The MODEL name, which is what the preview looks the mesh up by
             preview.Draw(row.name, icon);
 
+            //------------------------------------------------------------------
+            // The name over the stats, the same two-line shape every other vendor
+            // uses. The merchant showed neither before - an icon and a row of
+            // figures - which meant the one list in the game where the player is
+            // choosing between twenty similar objects was the one that did not
+            // say what any of them were called.
+            //------------------------------------------------------------------
+            UiLabel(WeaponDisplayName(row.name.c_str()), icon.x + icon.width + RowPad*ls,
+                    box.y + 8.0f*ls, RowSize*ls, UiInk);
+
             UiLabel(row.detail.c_str(), icon.x + icon.width + RowPad*ls,
-                    box.y + (box.height - NoteSize*ls)*0.5f, NoteSize*ls, UiDim);
+                    box.y + (8.0f + RowSize + 3.0f)*ls, NoteSize*ls, UiDim);
         }
         else
         {
@@ -523,16 +662,40 @@ void ShopScreen::Draw(const Player &player, const Arsenal &arsenal, const Spellb
                     box.y + (8.0f + RowSize + 3.0f)*ls, NoteSize*ls, UiDim);
         }
 
-        const Rectangle button = { box.x + box.width - (ButtonW + RowPad)*ls,
-                                   box.y + (box.height - ButtonH*ls)*0.5f,
-                                   ButtonW*ls, ButtonH*ls };
+        const Rectangle button = page.MainButtonIn(box);
+
+        //----------------------------------------------------------------------
+        // The merchant's SELL button, drawn before the primary one and never
+        // instead of it - an owned weapon can be forged and sold, and those are
+        // two answers to two questions. See Row::sellable.
+        //
+        // Its refusal note goes UNDER the button rather than beside it, where the
+        // primary button's own note already lives.
+        //----------------------------------------------------------------------
+        if (row.sellable)
+        {
+            const Rectangle sell = page.SellButtonIn(box);
+
+            UiButton(sell, row.sellEnabled, ls, in,
+                     TextFormat("SELL  %i", row.sellPrice), UiPanel, UiDim);
+
+            if (!row.sellEnabled && !row.sellNote.empty())
+            {
+                UiLabelCentered(row.sellNote.c_str(), sell.x + sell.width*0.5f,
+                                sell.y + sell.height + 1.0f*ls, NoteSize*0.85f*ls, UiOff);
+            }
+        }
 
         if (row.deal == Deal::None)
         {
             // Nothing left to do with this one. The note is drawn where the button
             // would be, so the list keeps its shape rather than growing a ragged
-            // right edge as things are bought.
-            UiLabelRight(row.note.c_str(), button.x + button.width,
+            // right edge as things are bought - unless a SELL button is standing
+            // there, in which case it goes to the left of that instead.
+            const float noteRight = row.sellable ? (page.SellButtonIn(box).x - 10.0f*ls)
+                                                 : (button.x + button.width);
+
+            UiLabelRight(row.note.c_str(), noteRight,
                          button.y + (button.height - NoteSize*ls)*0.5f, NoteSize*ls, UiOff);
 
             continue;
@@ -546,17 +709,21 @@ void ShopScreen::Draw(const Player &player, const Arsenal &arsenal, const Spellb
 
         UiButton(button, row.enabled, ls, in, label, UiPanel, row.tint);
 
-        // Why it is refused, beside the button rather than instead of it. A greyed
-        // button with no reason next to it is a rule the player has to guess.
-        if (!row.enabled && !row.note.empty())
+        //----------------------------------------------------------------------
+        // Why it is refused, UNDER the button rather than beside it. A greyed button
+        // with no reason next to it is a rule the player has to guess.
+        //
+        // Under, because beside does not fit: a merchant row already carries the
+        // weapon's stats and tags across the middle and now a SELL button as well,
+        // and a right-aligned note between them ran straight through both. The
+        // strip below the button is the one piece of a row nothing else uses, and
+        // putting every note there means no row can ever grow into a collision.
+        //----------------------------------------------------------------------
+        if (!row.note.empty())
         {
-            UiLabelRight(row.note.c_str(), button.x - 10.0f*ls,
-                         button.y + (button.height - NoteSize*ls)*0.5f, NoteSize*ls, UiOff);
-        }
-        else if (row.enabled && !row.note.empty())
-        {
-            UiLabelRight(row.note.c_str(), button.x - 10.0f*ls,
-                         button.y + (button.height - NoteSize*ls)*0.5f, NoteSize*ls, UiDim);
+            UiLabelCentered(row.note.c_str(), button.x + button.width*0.5f,
+                            button.y + button.height + 1.0f*ls, NoteSize*0.85f*ls,
+                            row.enabled ? UiDim : UiOff);
         }
     }
 

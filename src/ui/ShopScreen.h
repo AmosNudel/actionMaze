@@ -11,6 +11,7 @@ class Arsenal;
 class Spellbook;
 class TraitLoadout;
 class WeaponPreview;
+class ViewModel;
 
 //----------------------------------------------------------------------------------
 // The vendor's counter: one page, three shops.
@@ -23,7 +24,7 @@ class WeaponPreview;
 // list, the currency and the accent colour; the counter itself is identical, and three
 // copies of it would be three places to fix the same bug.
 //
-//     MERCHANT   weapons + forge levels   <-> coins
+//     MERCHANT   weapons, forged and sold  <-> coins
 //     MYSTIC     schools + empower levels <-> gems
 //     CAPTAIN    traits, bought and sold  <-> contracts
 //
@@ -55,14 +56,20 @@ public:
     NpcKind Vendor() const { return vendor; }
 
     // Reads the mouse and moves things across the counter. Only call while open.
-    void Update(Player &player, Arsenal &arsenal, Spellbook &spells, TraitLoadout &traits);
+    // `viewModel` is read, never written: the counter needs to know what is in the
+    // player's hands so it can refuse to sell it - see BuildRows. Equipping stays the
+    // wheel's and the character page's job, which is the split the class note above
+    // is about.
+    void Update(Player &player, Arsenal &arsenal, Spellbook &spells, TraitLoadout &traits,
+                const ViewModel &viewModel);
 
     // Screen space, after EndMode3D. `preview` draws the merchant's rotating
     // weapon icons - see render/WeaponPreview.h - and is mutable despite this
     // being a const method: it owns a render target it redraws every row, and
     // nothing about the shop's own state changes because of it.
     void Draw(const Player &player, const Arsenal &arsenal, const Spellbook &spells,
-              const TraitLoadout &traits, WeaponPreview &preview) const;
+              const TraitLoadout &traits, WeaponPreview &preview,
+              const ViewModel &viewModel) const;
 
 private:
     //------------------------------------------------------------------------------
@@ -106,13 +113,32 @@ private:
         int price = 0;
 
         bool enabled = false;           // Affordable, and there is something to do
+
+        //----------------------------------------------------------------------
+        // The merchant's SECOND button, and the only row in the game with two.
+        //
+        // A weapon can be forged AND sold, and those are different answers to
+        // different questions - "make this better" and "I am done with this" -
+        // so one button that changed meaning would be a button the player has to
+        // read every time. `deal` stays the primary action and this rides beside
+        // it; every other vendor leaves it off.
+        //
+        // `sellNote` is why it is refused when it is: an equipped weapon and the
+        // last weapon owned are both unsellable, for reasons the player cannot
+        // guess from a greyed button.
+        //----------------------------------------------------------------------
+        bool sellable = false;          // The button exists on this row at all
+        bool sellEnabled = false;       // ...and may actually be pressed
+        int sellPrice = 0;
+        std::string sellNote;
     };
 
     // Everything the vendor has, in list order. Static-lifetime strings only - the
     // rows hold pointers into TextFormat's ring buffer, which survives long enough
     // for one frame's draw and no longer.
     void BuildRows(const Player &player, const Arsenal &arsenal, const Spellbook &spells,
-                   const TraitLoadout &traits, std::vector<Row> &rows) const;
+                   const TraitLoadout &traits, const ViewModel &viewModel,
+                   std::vector<Row> &rows) const;
 
     struct Layout
     {
@@ -126,6 +152,14 @@ private:
         int visible = 0;                // Rows that fit in `list`
 
         Rectangle RowAt(int slot) const;
+
+        //----------------------------------------------------------------------
+        // The two buttons inside a row, from the row's own box. Here rather than
+        // computed at each use so the click test and the paint cannot disagree
+        // about where either one is - the same rule RowAt itself exists for.
+        //----------------------------------------------------------------------
+        Rectangle MainButtonIn(Rectangle box) const;
+        Rectangle SellButtonIn(Rectangle box) const;
     };
 
     Layout Measure() const;

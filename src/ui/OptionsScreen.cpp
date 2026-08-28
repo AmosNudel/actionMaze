@@ -6,7 +6,7 @@
 namespace
 {
     // Design pixels, fitted to the window - see the note in CharacterSheet.cpp
-    constexpr float DesignHeight = 400.0f;
+    constexpr float DesignHeight = 500.0f;
     constexpr float DesignWidth  = 480.0f;
     constexpr float MaxScale     = 2.4f;
 
@@ -15,16 +15,24 @@ namespace
     constexpr float ValueSize = 20.0f;
 
     constexpr float TitleTop  = 10.0f;
-    constexpr float RowsTop   = 110.0f;
-    constexpr float RowHeight = 60.0f;
-    constexpr float RowGap    = 12.0f;
+    constexpr float RowsTop   = 100.0f;
+    constexpr float RowHeight = 54.0f;
+    constexpr float RowGap    = 10.0f;
     constexpr float RowPad    = 20.0f;
 
-    constexpr float GlyphSize = 38.0f;
-    constexpr float GlyphGap  = 10.0f;
+    constexpr float GlyphSize = 34.0f;
+    constexpr float GlyphGap  = 9.0f;
 
-    constexpr float ButtonTop = 22.0f;   // Below the three rows
+    constexpr float ButtonTop = 22.0f;   // Below the last row
     constexpr float ButtonH   = 50.0f;
+
+    // The three level rows, in the order they are drawn. Named here so the layout,
+    // the click test and the paint all walk one list - the single bug this page can
+    // have is a row drawn in one place and clicked in another.
+    constexpr const char *LevelName[OptionsScreen::Layout::Levels] =
+    {
+        "MASTER", "MUSIC", "EFFECTS"
+    };
 }
 
 void OptionsScreen::Show()
@@ -51,26 +59,33 @@ OptionsScreen::Layout OptionsScreen::Measure()
     out.page = { (screenW - width)*0.5f, (screenH - height)*0.5f, width, height };
     out.titleY = out.page.y + TitleTop*out.ls;
 
-    // The three rows, stacked on one pitch. Walked rather than written out, so a
-    // fourth setting is one more rectangle and not three edited constants.
+    // Every row sits on one pitch, walked rather than written out - so another
+    // setting is one more entry and not a block of edited constants
     const float pitch = (RowHeight + RowGap)*out.ls;
     const float rowsY = out.page.y + RowsTop*out.ls;
 
-    out.fullscreenRow = { out.page.x, rowsY,             out.page.width, RowHeight*out.ls };
-    out.muteRow       = { out.page.x, rowsY + pitch,     out.page.width, RowHeight*out.ls };
-    out.volumeRow     = { out.page.x, rowsY + pitch*2.0f, out.page.width, RowHeight*out.ls };
+    out.fullscreenRow = { out.page.x, rowsY,         out.page.width, RowHeight*out.ls };
+    out.muteRow       = { out.page.x, rowsY + pitch, out.page.width, RowHeight*out.ls };
 
-    const float glyphY = out.volumeRow.y + (out.volumeRow.height - GlyphSize*out.ls)*0.5f;
+    for (int i = 0; i < Layout::Levels; ++i)
+    {
+        const float y = rowsY + pitch*(float)(i + 2);
 
-    out.volumePlus = { out.volumeRow.x + out.volumeRow.width - RowPad*out.ls - GlyphSize*out.ls,
-                       glyphY, GlyphSize*out.ls, GlyphSize*out.ls };
+        out.levelRow[i] = { out.page.x, y, out.page.width, RowHeight*out.ls };
 
-    out.volumeMinus = { out.volumePlus.x - GlyphGap*out.ls - GlyphSize*out.ls,
-                        glyphY, GlyphSize*out.ls, GlyphSize*out.ls };
+        const float glyphY = y + (RowHeight*out.ls - GlyphSize*out.ls)*0.5f;
 
-    const float buttonY = out.volumeRow.y + out.volumeRow.height + ButtonTop*out.ls;
+        out.levelPlus[i] = { out.page.x + out.page.width - RowPad*out.ls - GlyphSize*out.ls,
+                             glyphY, GlyphSize*out.ls, GlyphSize*out.ls };
 
-    out.back = { out.page.x, buttonY, out.page.width, ButtonH*out.ls };
+        out.levelMinus[i] = { out.levelPlus[i].x - GlyphGap*out.ls - GlyphSize*out.ls,
+                              glyphY, GlyphSize*out.ls, GlyphSize*out.ls };
+    }
+
+    const Rectangle last = out.levelRow[Layout::Levels - 1];
+
+    out.back = { out.page.x, last.y + last.height + ButtonTop*out.ls,
+                 out.page.width, ButtonH*out.ls };
 
     return out;
 }
@@ -88,13 +103,23 @@ OptionsScreen::Choice OptionsScreen::Update()
 
     if (in.Over(page.fullscreenRow)) return Choice::ToggleFullscreen;
     if (in.Over(page.muteRow))       return Choice::ToggleMute;
-    if (in.Over(page.volumeMinus))   return Choice::VolumeDown;
-    if (in.Over(page.volumePlus))    return Choice::VolumeUp;
 
-    // After the two glyphs, so a click that landed on one of them is a step and not
-    // a row press. The volume row is not a toggle - it is a label with two buttons
-    // on it - and the whole-row test only exists to swallow the misses.
-    if (in.Over(page.volumeRow)) return Choice::None;
+    //------------------------------------------------------------------------------
+    // The steppers, walked in the same order the enum lists them - row i's pair is
+    // VolumeDown + 2i and one past it. Tied to the enum's own order on purpose, the
+    // same way PauseMenu ties its entry table to Choice, so adding a level means
+    // adding one name to each list and nothing else.
+    //------------------------------------------------------------------------------
+    for (int i = 0; i < Layout::Levels; ++i)
+    {
+        if (in.Over(page.levelMinus[i])) return (Choice)((int)Choice::VolumeDown + i*2);
+        if (in.Over(page.levelPlus[i]))  return (Choice)((int)Choice::VolumeUp + i*2);
+
+        // After the two glyphs, so a click that landed on one is a step and not a row
+        // press. A level row is not a toggle - it is a label with two buttons on it -
+        // and this test only exists to swallow the misses.
+        if (in.Over(page.levelRow[i])) return Choice::None;
+    }
 
     if (in.Over(page.back)) return Choice::Back;
 
@@ -106,7 +131,7 @@ void OptionsScreen::Draw(const OptionsView &view) const
     const Layout page = Measure();
     const float ls = page.ls;
 
-    UiPageBackdrop();
+    UiPageBackdrop(UiFrontBackdrop, UiFrontBg);
 
     UiLabel("OPTIONS", page.page.x, page.titleY, TitleSize*ls, UiAccent);
 
@@ -139,10 +164,10 @@ void OptionsScreen::Draw(const OptionsView &view) const
                 ValueSize*ls, view.fullscreenOn ? UiReady : UiDim);
 
     //------------------------------------------------------------------------------
-    // Mute, kept SEPARATE from dragging the volume to zero rather than folded into
-    // it. They are different things a player wants: mute is "not right now" and
-    // remembers what the volume was, zero is "this is how loud I want it". A mute
-    // that clobbered the volume would make un-muting a second decision.
+    // Mute, kept SEPARATE from dragging a level to zero rather than folded into it.
+    // They are different things a player wants: mute is "not right now" and remembers
+    // what the levels were, zero is "this is how loud I want it". A mute that
+    // clobbered the levels would make un-muting a second decision.
     //------------------------------------------------------------------------------
     UiRow(page.muteRow, ls, in.Over(page.muteRow), UiAccent);
 
@@ -156,24 +181,31 @@ void OptionsScreen::Draw(const OptionsView &view) const
                 ValueSize*ls, view.muted ? UiOff : UiReady);
 
     //------------------------------------------------------------------------------
-    // Volume. Drawn dim while muted - the number is still the truth about what will
-    // come back when the sound does, and greying it is how the row says so without
-    // a second sentence.
+    // The three levels - see the note on OptionsView. All drawn dim while muted: the
+    // numbers are still the truth about what comes back when the sound does, and
+    // greying them is how the rows say so without a second sentence.
     //------------------------------------------------------------------------------
-    UiRow(page.volumeRow, ls, false, UiAccent);
+    const float level[Layout::Levels] = { view.volume, view.music, view.effects };
 
-    UiLabel("VOLUME", page.volumeRow.x + RowPad*ls,
-            page.volumeRow.y + (page.volumeRow.height - LabelSize*ls)*0.5f,
-            LabelSize*ls, view.muted ? UiOff : UiInk);
+    for (int i = 0; i < Layout::Levels; ++i)
+    {
+        const Rectangle row = page.levelRow[i];
 
-    const int percent = (int)(view.volume*100.0f + 0.5f);
+        UiRow(row, ls, false, UiAccent);
 
-    UiLabelRight(TextFormat("%i%%", percent), page.volumeMinus.x - GlyphGap*ls,
-                page.volumeRow.y + (page.volumeRow.height - ValueSize*ls)*0.5f,
-                ValueSize*ls, view.muted ? UiOff : UiInk);
+        UiLabel(LevelName[i], row.x + RowPad*ls,
+                row.y + (row.height - LabelSize*ls)*0.5f,
+                LabelSize*ls, view.muted ? UiOff : UiInk);
 
-    UiGlyphButton(page.volumeMinus, view.volume > 0.0f, ls, in, "-", UiPanel);
-    UiGlyphButton(page.volumePlus, view.volume < 1.0f, ls, in, "+", UiPanel);
+        const int percent = (int)(level[i]*100.0f + 0.5f);
+
+        UiLabelRight(TextFormat("%i%%", percent), page.levelMinus[i].x - GlyphGap*ls,
+                    row.y + (row.height - ValueSize*ls)*0.5f,
+                    ValueSize*ls, view.muted ? UiOff : UiInk);
+
+        UiGlyphButton(page.levelMinus[i], level[i] > 0.0f, ls, in, "-", UiPanel);
+        UiGlyphButton(page.levelPlus[i], level[i] < 1.0f, ls, in, "+", UiPanel);
+    }
 
     UiButton(page.back, true, ls, in, view.backLabel, UiPanel, UiInk);
 }
