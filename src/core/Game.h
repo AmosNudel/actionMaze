@@ -17,6 +17,7 @@
 #include "render/FpsCamera.h"
 #include "render/ViewModel.h"
 #include "render/Portal.h"
+#include "render/PostFx.h"
 #include "render/Vfx.h"
 #include "render/WeaponPreview.h"
 #include "ui/CharacterSheet.h"
@@ -176,6 +177,26 @@ private:
     // which is the same question as "is the world paused".
     bool UpdateScreens();
 
+    //------------------------------------------------------------------------------
+    // Every page that only makes sense over a run, shut.
+    //
+    // Called from EnterState on the two arrivals that leave the run behind - the
+    // main menu and the loading screen. Both are reached from the pause menu now
+    // (see its RESTART and MAIN MENU entries), and a character sheet still up
+    // over a run that no longer exists would be a page with nothing underneath it.
+    //------------------------------------------------------------------------------
+    void CloseRunScreens();
+
+    //------------------------------------------------------------------------------
+    // How close to death the player is, as 0 healthy to 1 on the floor.
+    //
+    // Zero above Config::HurtVignetteAt and rising to one at an empty bar, so the
+    // red arrives gradually rather than switching on at a threshold. Read by the
+    // draw only - this is what the frame is tinted by, not anything the fight
+    // resolves against.
+    //------------------------------------------------------------------------------
+    float HurtAmount() const;
+
     // The run-end page, while the run is over. Reads its choice and acts on it -
     // Restart calls StartNewRun, Quit sets the same flag the pause menu's Quit does.
     void UpdateRunEnd();
@@ -292,6 +313,11 @@ private:
     TraitLoadout traits;
 
     Sky sky;
+
+    // The buffer the world is drawn into and the pass that puts it on screen -
+    // see render/PostFx.h. Owned here because the composition root is the only
+    // thing that sees the whole frame, which is exactly what it grades.
+    PostFx post;
 
     // The town outside the walls - see world/Skyline.h. Beside the sky rather than
     // beside the level, because that is what it is: something on the horizon that

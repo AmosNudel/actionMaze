@@ -24,15 +24,16 @@
 //
 // The menu owns no state beyond which entry is highlighted and whether it is up.
 // What each entry DOES is the caller's - it reads the choice back and acts on it -
-// because two of the four (restart, quit) are things only the composition root can
-// do, and a menu that could do them would need to know about every system there is.
+// because two of the five (restart, main menu) are things only the composition root
+// can do, and a menu that could do them would need to know about every system there
+// is.
 //----------------------------------------------------------------------------------
 class PauseMenu
 {
 public:
     // What the player picked this frame, or None. Consumed by reading: Update
     // returns it once and the menu goes back to None on the next frame.
-    enum class Choice { None, Resume, Character, Options, Quit };
+    enum class Choice { None, Resume, Character, Options, Restart, Menu };
 
     void Toggle();
     bool IsOpen() const { return open; }
@@ -55,7 +56,7 @@ private:
         float ls = 1.0f;
 
         Rectangle page{};
-        Rectangle entries[4]{};
+        Rectangle entries[5]{};
 
         float titleY = 0.0f;
     };

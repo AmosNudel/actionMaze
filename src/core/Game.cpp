@@ -85,6 +85,11 @@ void Game::Init()
     // there at boot rather than behind that screen.
     menuBackdrop.Load(assets);
 
+    // A single fragment program and nothing else, so it loads at boot with the
+    // font rather than behind the run-loading screen. It is also wanted before
+    // the first frame of the first run, and that screen is what draws those.
+    post.Load(assets);
+
     // Nothing else here: the gameplay assets and the level are loaded behind the
     // run-loading screen instead, the first time Start Game is pressed - see
     // LoadRunAssets and UpdateRunLoading. The Main Menu is on screen as soon as
@@ -825,10 +830,27 @@ bool Game::UpdateScreens()
             // comes back to, so it stays open underneath
             case PauseMenu::Choice::Options:   pauseOptions = true; options.Show(); break;
 
-            // The one place the game ends. Straight out - there is nothing to save
-            // yet, and a confirmation on a menu entry that already says "to
-            // desktop" is a second question about the same decision.
-            case PauseMenu::Choice::Quit:      quitting = true; break;
+            //----------------------------------------------------------------------
+            // The two that leave this run behind.
+            //
+            // Both go through the fader rather than acting on the spot, which is
+            // what every other screen change in the game does and what makes these
+            // two feel like the same kind of event: the picture goes to black, the
+            // run is taken away behind it, and the next screen fades up. Acting
+            // immediately would cut a lit dungeon straight to a loading bar.
+            //
+            // The menu deliberately stays OPEN through the fade. It is what freezes
+            // the world - UpdateScreens returns true while it is up - and closing
+            // it here would start the dungeon running again underneath a screen
+            // that is on its way out. EnterState shuts it once the fade is black,
+            // by way of CloseRunScreens.
+            //
+            // Nothing is asked twice. RESTART already reads as starting over and
+            // MAIN MENU as leaving, and neither loses anything a player would want
+            // a confirmation for that RESUME two rows up does not already offer.
+            //----------------------------------------------------------------------
+            case PauseMenu::Choice::Restart:   RequestAppState(AppState::RunLoading); break;
+            case PauseMenu::Choice::Menu:      RequestAppState(AppState::MainMenu);   break;
 
             default: break;
         }
@@ -849,6 +871,46 @@ bool Game::UpdateScreens()
     FreeCursor(paused);
 
     return paused;
+}
+
+//----------------------------------------------------------------------------------
+// Every page that only makes sense over a run, shut - see the declaration.
+//
+// One function rather than the same four calls at each arrival, because the cost of
+// getting this wrong is invisible: a page left up is still drawn, still eats the
+// mouse, and still looks like the game has hung on whatever screen it is stranded
+// over.
+//----------------------------------------------------------------------------------
+void Game::CloseRunScreens()
+{
+    pause.Close();
+    sheet.Close();
+    shop.Close();
+    runEnd.Close();
+
+    // Goes with the menu that opened it - see the note on `pauseOptions`
+    pauseOptions = false;
+}
+
+//----------------------------------------------------------------------------------
+// How close to death the player is - see the declaration and assets/shaders/post.fs.
+//
+// Only while there is a run to be in: the front-end screens do not draw through the
+// post pass at all, but a stale value here would tint the first frame of the next
+// one before the new character's pool has been read.
+//----------------------------------------------------------------------------------
+float Game::HurtAmount() const
+{
+    if (appState != AppState::InGame) return 0.0f;
+    if (player.maxHealth <= 0) return 0.0f;
+
+    const float left = (float)player.health/(float)player.maxHealth;
+
+    if (left >= Config::HurtVignetteAt) return 0.0f;
+
+    // Ramped rather than switched, so the frame closes in over the last of the bar
+    // instead of turning red the moment a fifth of it is crossed
+    return 1.0f - left/Config::HurtVignetteAt;
 }
 
 //----------------------------------------------------------------------------------
@@ -1029,9 +1091,14 @@ void Game::EnterState(AppState next)
             loadingElapsed = 0.0f;
             runLoadStage = RunLoadStage::Enter;
             runLoadStep = 0;
+
+            // RunLoading is reachable from a paused run now - see the RESTART entry
+            // in UpdateScreens - and the menu that started the trip is still up
+            CloseRunScreens();
             break;
 
         case AppState::MainMenu:
+            CloseRunScreens();
             mainMenu.Show();
             FreeCursor(true);
             break;
@@ -1303,6 +1370,15 @@ const char *Game::RunLoadLabel() const
 //----------------------------------------------------------------------------------
 void Game::UpdateInGame(float delta)
 {
+    //------------------------------------------------------------------------------
+    // The run is already on its way out - see the RESTART and MAIN MENU entries in
+    // UpdateScreens. Everything holds still behind the fade, the pause menu the
+    // choice was made on included: a second choice taken from under a fade would
+    // land on a run that is halfway through being taken away, and the world ticking
+    // on for those few frames would mean dying on a floor already abandoned.
+    //------------------------------------------------------------------------------
+    if (appState != pendingState) return;
+
     // The camera is still falling. Nothing below this matters until the beat
     // runs out - see UpdateDying.
     if (runPhase == RunPhase::Dying)
@@ -1918,16 +1994,36 @@ void Game::Draw()
     }
 }
 
+//----------------------------------------------------------------------------------
+// The frame, in three passes.
+//
+// The weapons go into their own target first, for the reason they always have: a
+// held sword sits inside anything the world can legitimately put in front of the
+// eye, so sharing a depth buffer with the world means being sliced by it.
+//
+// The WORLD then goes into a second target rather than at the window, which is
+// new - see render/PostFx.h. Both targets are the same size and that size is
+// bigger than the window, so the composite between them lands pixel for pixel and
+// the resolve down to the screen doubles as the anti-aliasing.
+//
+// Only then is there a window pass, and what goes in it is everything that must
+// NOT be graded: the labels, the HUD, the pages, the fades. Those are drawn at
+// the window's own resolution exactly as they always were.
+//----------------------------------------------------------------------------------
 void Game::DrawInGame()
 {
-    // The held weapons go into their own target first, with their own depth
-    // buffer, so nothing in the world can clip through them
-    viewModel.BeginPass(camera.Get());
+    // Asked once and handed to both, rather than each working it out - two targets
+    // that disagree by a pixel is a composite that scales, which is the one thing
+    // this arrangement exists to avoid
+    const int passWidth = PostBufferWidth();
+    const int passHeight = PostBufferHeight();
+
+    viewModel.BeginPass(camera.Get(), passWidth, passHeight);
         viewModel.Draw(camera.Get());
         viewModelEditor.Draw(viewModel, camera.Get());
     viewModel.EndPass();
 
-    BeginDrawing();
+    post.BeginPass();
 
         ClearBackground(Color{ Config::Background[0], Config::Background[1],
                                Config::Background[2], 255 });
@@ -1962,7 +2058,23 @@ void Game::DrawInGame()
 
         EndMode3D();
 
-        viewModel.Composite();  // Over the finished world
+        viewModel.Composite();  // Over the finished world, and still inside the pass
+
+    post.EndPass();
+
+    BeginDrawing();
+
+        // Nothing of the window's own is left visible - the pass below covers
+        // every pixel of it - but a cleared buffer is what the driver wants
+        ClearBackground(BLACK);
+
+        // The world and the weapons, graded, glowed, and closed in at the edges by
+        // however much trouble the player is in - see PostFx::Draw. GetTime rather
+        // than an accumulator of our own because the only thing the clock drives is
+        // the rate the red breathes at, and that is a wall clock either way: it
+        // carries on under the pause menu, which is fine, because the pause menu
+        // covers the picture it is breathing over.
+        post.Draw(HurtAmount(), (float)GetTime());
 
         viewModelEditor.DrawUi(viewModel);
         combatDebug.DrawUi(player, enemies);
@@ -2028,6 +2140,7 @@ void Game::Shutdown()
 
     level.Unload();
     sky.Unload();
+    post.Unload();
     viewModel.Unload();
     weaponPreview.Unload();
     enemies.Unload();

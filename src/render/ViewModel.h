@@ -118,9 +118,18 @@ public:
     // late, which is one frame of a knife being in two places at once.
     void NoteThrown(Hand hand);
 
+    //------------------------------------------------------------------------------
     // The isolated pass. Everything held in the hands is drawn between these,
     // then Composite() lays the result over the finished world.
-    void BeginPass(const Camera3D &camera);
+    //
+    // `width` and `height` size the target; 0 means the window, which is what it
+    // always used to be. They are arguments now because the world is rendered
+    // into a buffer BIGGER than the window - see render/PostFx.h - and the
+    // composite is a straight 1:1 blit into that buffer. A weapon drawn at window
+    // size and laid over a supersampled world would be the one blurry thing on
+    // screen, and it is the thing closest to the eye.
+    //------------------------------------------------------------------------------
+    void BeginPass(const Camera3D &camera, int width = 0, int height = 0);
     void EndPass();
     void Composite() const;
 

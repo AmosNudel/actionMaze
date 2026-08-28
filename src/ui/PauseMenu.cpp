@@ -25,25 +25,40 @@ namespace
         const char *note;       // Second line, smaller. Null for none.
 
         // The accent an entry is picked out in when the cursor is on it. The first
-        // three are ordinary business and share the page's own gold; Quit is red,
-        // because it is the one entry that cannot be taken back.
+        // three are ordinary business and share the page's own gold; the last two
+        // are red, because they are the two that end the run that is in progress.
         Color accent;
     };
 
-    constexpr Color QuitRed = { 235, 110, 90, 255 };
+    constexpr Color LeaveRed = { 235, 110, 90, 255 };
 
+    //------------------------------------------------------------------------------
+    // QUIT went and RESTART and MAIN MENU came in its place.
+    //
+    // Quitting to the desktop from here was the wrong shape for what a paused player
+    // actually wants. A run that is going badly is a run they want to START AGAIN,
+    // and a game they are finished with is one they leave from the front door - the
+    // main menu already has an EXIT on it. What the menu had instead was the one
+    // choice that skips both: the whole application, gone, from a keypress two rows
+    // below RESUME.
+    //
+    // Neither of the new pair is instant. Both hand off to Game, which fades out
+    // exactly as every other screen change does - see the note beside them in
+    // Game::UpdateScreens.
+    //------------------------------------------------------------------------------
     constexpr Entry Entries[] =
     {
         { "RESUME",    "back to the floor",         UiAccent },
         { "CHARACTER", "spend points",              UiAccent },
         { "OPTIONS",   "window, sound and volume",  UiAccent },
-        { "QUIT",      "to desktop",                QuitRed },
+        { "RESTART",   "a fresh run from floor one", LeaveRed },
+        { "MAIN MENU", "leave this run behind",      LeaveRed },
     };
 
     constexpr int Count = (int)(sizeof(Entries)/sizeof(Entries[0]));
 
     // See the note in CharacterSheet.cpp - design pixels, fitted to the window.
-    constexpr float DesignHeight = 430.0f;
+    constexpr float DesignHeight = 502.0f;
     constexpr float DesignWidth  = 480.0f;
     constexpr float MaxScale     = 2.4f;
 
@@ -65,8 +80,8 @@ void PauseMenu::Toggle()
     justOpened = open;
 
     // Back to the top every time it opens. A menu that remembered the cursor would
-    // put QUIT under Enter for the player who last used it, which is the one place
-    // a remembered cursor can cost something.
+    // put MAIN MENU under Enter for the player who last used it, which is the one
+    // place a remembered cursor can cost something.
     if (open) cursor = 0;
 }
 
@@ -116,7 +131,7 @@ PauseMenu::Choice PauseMenu::Update()
     if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) cursor++;
     if (IsKeyPressed(KEY_UP)   || IsKeyPressed(KEY_W)) cursor--;
 
-    // Wrapped rather than clamped: four entries is short enough that running off the
+    // Wrapped rather than clamped: five entries is short enough that running off the
     // bottom to reach the top is quicker than turning round
     if (cursor < 0) cursor = Count - 1;
     if (cursor >= Count) cursor = 0;
@@ -150,7 +165,8 @@ PauseMenu::Choice PauseMenu::Update()
     // menu CLOSING and that is the same event Escape produces - see UpdateScreens.
     if (cursor != (int)Choice::Resume - 1) GameSfx::Play(Sfx::UiConfirm);
 
-    // The enum runs None, Resume, Character, Options, Quit - so entry i is i + 1.
+    // The enum runs None, Resume, Character, Options, Restart, Menu - so entry i is
+    // i + 1.
     // Tied to the table's order on purpose: adding an entry means adding both, and
     // the two sitting next to each other in this file is what makes that obvious.
     return (Choice)(cursor + 1);

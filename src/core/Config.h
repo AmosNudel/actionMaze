@@ -37,6 +37,33 @@ namespace Config
     // nothing but the aliasing.
     constexpr bool  AntiAliasing  = true;
 
+    // Post-processing ---------------------------------------------------------
+    // What the world is rendered at, as a multiple of the window - see
+    // render/PostFx.h. The whole picture goes through a buffer now so it can be
+    // graded, and a plain render texture cannot carry the multisampling the
+    // window itself was given: the shimmer described on AntiAliasing above would
+    // come straight back.
+    //
+    // 2.0 is what buys it back. At exactly twice the width and height, one
+    // finished pixel lands dead between four rendered ones and the bilinear
+    // filter the buffer is sampled with averages precisely those four - a clean
+    // 2x2 box downsample. That is supersampling, and it beats 4x multisampling
+    // here because it smooths shaded detail as well as silhouettes.
+    //
+    // It also costs four times the fragment work, which is the only reason not
+    // to. 1.0 turns it off and keeps the grade and the vignette; anything
+    // between the two is a partial box filter and resolves unevenly, so those
+    // are the two values worth setting.
+    constexpr float PostRenderScale = 2.0f;
+
+    // Where the red closing in on the frame starts, as a fraction of the health
+    // pool, and how fast it breathes once it is up (radians a second). A fifth of
+    // the bar left is about one more hit from most things on the floor, which is
+    // the point at which "you are low" stops being information and starts being a
+    // warning.
+    constexpr float HurtVignetteAt = 0.20f;
+    constexpr float HurtPulseRate  = 4.2f;
+
     // Longest step any system is allowed to see. One hitch at full speed would
     // otherwise carry a body straight through a wall.
     constexpr float MaxFrameTime  = 1.0f/30.0f;

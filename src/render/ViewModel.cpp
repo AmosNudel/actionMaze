@@ -363,10 +363,12 @@ void ViewModel::Unload()
 // depth sort against each other and against nothing else - a wall pressed
 // against the player's face cannot slice the sword in half.
 //----------------------------------------------------------------------------------
-void ViewModel::BeginPass(const Camera3D &camera)
+void ViewModel::BeginPass(const Camera3D &camera, int width, int height)
 {
-    const int width = GetScreenWidth();
-    const int height = GetScreenHeight();
+    // The window is what this is for when the caller has no opinion - see the note
+    // on the declaration for when it has one
+    if (width <= 0) width = GetScreenWidth();
+    if (height <= 0) height = GetScreenHeight();
 
     // Cheap to check, and it means a resized window does not stretch the weapons
     if ((target.id == 0) || (target.texture.width != width) || (target.texture.height != height))
