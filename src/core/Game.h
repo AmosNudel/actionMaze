@@ -14,6 +14,7 @@
 #include "progress/Traits.h"
 #include "render/AssetManager.h"
 #include "render/Sky.h"
+#include "render/Fog.h"
 #include "render/FpsCamera.h"
 #include "render/ViewModel.h"
 #include "render/Portal.h"
@@ -313,6 +314,11 @@ private:
     TraitLoadout traits;
 
     Sky sky;
+
+    // The haze the world is seen through - see render/Fog.h. Owned here for the
+    // reason the post pass is: it is fed once for the whole frame, and the
+    // composition root is the only thing that has a whole frame.
+    Fog fog;
 
     // The buffer the world is drawn into and the pass that puts it on screen -
     // see render/PostFx.h. Owned here because the composition root is the only

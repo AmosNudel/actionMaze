@@ -16,10 +16,16 @@ out vec2 fragTexCoord;
 out vec4 fragColor;
 out vec3 fragNormal;
 
+// Where this vertex actually is in the world. Only the fog wants it - see the
+// block in lit.fs - and it is worked out here rather than there because matModel
+// is a per-draw constant and this runs per vertex instead of per pixel.
+out vec3 fragPosition;
+
 void main()
 {
     fragTexCoord = vertexTexCoord;
     fragColor = vertexColor;
+    fragPosition = vec3(matModel*vec4(vertexPosition, 1.0));
 
     // Through matNormal rather than matModel: a normal is a direction, and it
     // survives a non-uniform scale only under the inverse transpose, which is

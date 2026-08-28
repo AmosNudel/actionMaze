@@ -112,11 +112,12 @@ namespace
                                   StatCritChance(fighting)*100.0f, StatCritDamage(fighting));
 
             default:
-                // Arcane buys two things now, and the second one is the reason a
-                // caster spends on it at all - so both are printed. A page that
-                // showed only spell power would leave the mana pool as a number the
-                // player watches move for no visible reason.
-                return TextFormat("spell %i   mana %i", player.SpellPower(), player.MaxMana());
+                // Spell power and nothing else. The mana pool was printed here while
+                // arcane still raised it; it is flat for every build now (see the
+                // note beside Config::ManaMax), and a number on this row that never
+                // moved when the point was spent would read as the point doing
+                // nothing.
+                return TextFormat("spell    %i", player.SpellPower());
         }
     }
 

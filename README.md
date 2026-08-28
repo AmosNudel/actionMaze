@@ -281,7 +281,14 @@ school's cost has to be checked against that.
 Spell kills pay *at all* — rather than nothing — because schools key off ARCANE alone. A
 character who spent everything on arcane has strong spells and a base-10 sword, so under a rule
 of "only weapons pay" that build starves itself and arcane is a trap wearing the costume of a
-choice. ARCANE also raises the *pool*, which is a reservoir and not a faucet.
+choice.
+
+ARCANE does **not** raise the pool. It did, and the two effects compounded: the same points
+bought harder casts *and* more of them, which is what let a pure caster outrun every weapon
+build in playtesting. Arcane is spell power alone now and the pool is a flat
+`Config::ManaMax` for everyone, so the cost of a cast means the same thing to every build.
+Gear and traits can still add to it through `Modifiers::flatMana` — that is a slot being
+spent, not a bonus riding along on a stat the build was buying anyway.
 
 ## Modifiers
 
@@ -353,6 +360,59 @@ at rest. It is deliberately at the edge of perception —
 `AttackVariationOffset` ±0.015 units and `AttackVariationAngle` ±3° per axis, one
 roll per attack so the whole stroke stays coherent. The editor and the dump never
 see it.
+
+## Fog
+
+Distance fog, in the two fragment shaders the world is drawn with — `assets/shaders/lit.fs`
+and `assets/shaders/skinning.fs`. Between them they cover the stonework, the props, the
+vendors, the loot, the skyline and every animated body, because `AssetManager` caches a
+shader per path pair and hands all eight attach sites the same two programs.
+
+Without it every wall was drawn at the same clarity whether it was one cell away or thirty,
+so a long corridor and a short one looked alike and the town on the horizon looked like a
+*model* of a town rather than a distant one.
+
+The amount is `1 - exp(-(distance*FogDensity)²)` off the fragment's world position and the
+eye — exponential squared, so there is nothing at all for the first few paces, then a
+shoulder, then a long tail. Linear fog has a start line you can see; a plain exponential
+greys the wall you are standing against.
+
+It also **thins with height**, `exp(-(y - FogFloor)/FogHeight)` scaled into `FogTop`. That is
+what puts the haze *under* the distant buildings: their bases sit in it and their roofs stand
+clear of it, and that gap is most of what makes them read as far away rather than as small.
+The height is the fragment's own rather than an integral along the ray — the eye never leaves
+the floor by more than a jump here, so the cheap version draws the same picture.
+
+`FogColour` is **sampled off the horizon band of `SkyCubemap`**, not picked. Distant walls
+have to fade into the sky they are seen against, and a grey haze in front of a red sky reads
+as a bug in the renderer.
+
+The **skybox is exempt** — fog is what geometry dissolves *into*, and fogging the thing it
+dissolves into would leave nothing for the horizon to be. So are the held weapons and the
+weapon preview, which draw with raylib's own shader and are inches from the eye either way,
+and the additive effects (impacts, the portal, spell motes), which are light rather than
+surface: haze in front of a lamp does not dim the lamp, it spreads it.
+
+[`src/render/Fog.h`](src/render/Fog.h) feeds the two programs — everything from `Config`
+once at load, and the eye position once a frame. It is a class rather than four
+`SetShaderValue` calls at each attach site because the failure mode of the alternative is one
+model in the game that never fogs, which looks like a rendering fault rather than a missed
+call.
+
+## Post-processing
+
+The world and the held weapons go into a buffer rather than straight at the window, and one
+full-screen pass puts them on screen graded ([`src/render/PostFx.h`](src/render/PostFx.h),
+`assets/shaders/post.fs`): a ring of eight bright-pass taps for a glow around fire and
+spellfire, a small contrast and saturation lift, a vignette, and the red that closes in on
+the frame below `Config::HurtVignetteAt` of the health pool.
+
+The buffer is `Config::PostRenderScale` times the window because a raylib render texture
+cannot carry the window's 4x multisampling, and losing that brings the brickwork shimmer
+straight back. At exactly 2 the bilinear resolve is a clean 2×2 box downsample —
+supersampling, which beats multisampling here because it smooths shaded detail as well as
+silhouettes, at four times the fragment work. The HUD, the labels and the pages are drawn
+after the pass, at the window's own resolution, ungraded.
 
 ## The viewmodel pass
 

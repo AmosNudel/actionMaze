@@ -28,8 +28,10 @@
 // under a rule of "only weapons pay" that build starves itself and arcane is a trap
 // wearing the costume of a choice.
 //
-// ARCANE also raises the POOL, which is a reservoir and not a faucet: a caster banks
-// more casts by fighting for them.
+// ARCANE does NOT raise the pool. It did once, and the two effects compounded: the
+// same points bought harder casts AND more of them, which is what made a pure caster
+// outrun every weapon build. Arcane is spell power alone now, and the pool is the
+// same twenty for everyone - see the note beside Config::ManaMax.
 //
 // --- Empowering ---------------------------------------------------------------------
 // The mystic raises a school's empower level. Each level adds a fraction of that

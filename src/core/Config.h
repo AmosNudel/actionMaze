@@ -239,6 +239,60 @@ namespace Config
     constexpr float SunDirection[3]   = { -0.45f, -0.80f, -0.40f };
     constexpr float SunAmbient        = 0.42f;  // Floor under an unlit face
 
+    //--------------------------------------------------------------------------
+    // Fog.
+    //
+    // What the maze was missing was DEPTH. Every wall was lit by the same sun and
+    // drawn at the same clarity whether it was one cell away or thirty, so a long
+    // corridor and a short one looked alike and the town on the horizon looked
+    // like a model of a town rather than a distant one. Fog is the cue that fixes
+    // it: things further off are seen through more air.
+    //
+    // Applied in the fragment shaders the world is drawn with - lit.fs and
+    // skinning.fs, which between them cover the stonework, the props, the
+    // vendors, the loot and the bodies. The SKYBOX is deliberately exempt: fog is
+    // what geometry dissolves INTO, and fogging the thing it dissolves into would
+    // leave nothing for the horizon to be.
+    //--------------------------------------------------------------------------
+    // Sampled off the horizon band of SkyCubemap rather than picked. Distant
+    // walls have to fade into the sky they are seen against, and a grey haze in
+    // front of a red sky reads as a bug in the renderer - it is the one colour
+    // here that cannot be chosen by taste.
+    constexpr float FogColour[3]   = { 0.33f, 0.17f, 0.165f };
+
+    // The curve, as exp(-(distance*density)^2). Tuned against the distances this
+    // game actually has: a cell is 4 units, a room is 10 to 30 across, the whole
+    // maze is 136, and the skyline stands from 100 out to about 250. At this
+    // value a wall across a room (30) is a sixth hazed, the far side of the maze
+    // is most of the way gone, and the outer rows of the town are nearly all
+    // haze. Raise it to close the view in.
+    constexpr float FogDensity     = 0.0135f;
+
+    // ...and thinner going up, which is what puts the haze UNDER the distant
+    // buildings: their bases sit in it and their roofs stand clear of it, and
+    // that gap is most of what makes them read as far away rather than as small.
+    //
+    // --- Why the haze does not start thinning at the floor --------------------
+    // It did, and from inside the maze that put the fog exactly where it could
+    // not be seen. The player is walled in by WallHeight: everything below the
+    // top of a wall is a few paces away and everything FAR enough to be hazed is
+    // seen OVER that wall, which is to say from four units up. A haze that
+    // started thinning at the floor spent all its strength on the one band the
+    // walls were already hiding, and the distant town - the only thing actually
+    // in view - came through it clear.
+    //
+    // So FogFloor is above the walls rather than at the floor. Everything up to
+    // it is in full haze, including the whole band a player sees along a corridor
+    // and over a wall, and only well above that does it thin.
+    //
+    // FogHeight is how many units the thinning then takes, against skyline pieces
+    // 7 to 19 tall and a castle at 30: a low roof is barely out of it, the castle
+    // is half out. FogTop is what is left at any height at all, so even the
+    // castle's top carries some distance rather than snapping to full clarity.
+    constexpr float FogFloor       = 8.0f;
+    constexpr float FogHeight      = 26.0f;
+    constexpr float FogTop         = 0.45f;
+
     // Coincident surfaces flicker: the depth test has no way to order two things
     // at the same depth, so it picks differently per pixel and per frame. Nudged
     // apart by a hair - far too small to see, far too large to confuse.
@@ -738,13 +792,26 @@ namespace Config
     // invariant a new school must not break: a spell can never fund itself.
     //
     // Twenty is about four of the heaviest schools or seven of the lightest, and
-    // that difference is the decision the cost is there to create. Arcane raises
-    // the pool rather than the refill rate: a caster banks more casts by fighting
-    // for them, which keeps the sword worth swinging on a build that never wanted
-    // one.
+    // that difference is the decision the cost is there to create.
+    //
+    // --- Why the pool is flat -------------------------------------------------
+    // Arcane used to raise it, on the reasoning that a caster should be able to
+    // bank more casts by fighting for them. In play that stacked the wrong way:
+    // arcane already multiplies what every cast HITS for, so a pure caster was
+    // buying harder spells and more of them off the same points, and the two
+    // together outran anything a weapon build could reach. Two effects on one
+    // stat is what made it compound.
+    //
+    // So arcane buys damage and nothing else, and the pool is the same size for
+    // everyone. The cost of a cast now means the same thing to every build, which
+    // is what makes it a real budget - and the refill still comes from killing,
+    // so a caster who wants more casts fights for them exactly as before.
+    //
+    // Gear and traits can still add to the pool (Modifiers::flatMana). That is a
+    // choice being paid for with a slot rather than a bonus riding along on a
+    // stat the build was buying anyway.
     //--------------------------------------------------------------------------
-    constexpr int   ManaMax             = 20;   // At neutral arcane; ARCANE adds
-    constexpr float ManaPerArcane       = 0.9f; // Extra pool per point over StatBase
+    constexpr int   ManaMax             = 20;   // The whole pool, for every build
 
     constexpr int   ManaPerKill         = 1;    // A body dropped by a weapon
 

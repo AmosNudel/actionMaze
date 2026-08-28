@@ -12,6 +12,7 @@ in vec4 vertexBoneWeights;
 
 // Input uniform values
 uniform mat4 mvp;
+uniform mat4 matModel;
 uniform mat4 matNormal;
 uniform mat4 boneMatrices[MAX_BONE_NUM];
 
@@ -19,6 +20,11 @@ uniform mat4 boneMatrices[MAX_BONE_NUM];
 out vec2 fragTexCoord;
 out vec4 fragColor;
 out vec3 fragNormal;
+
+// The SKINNED position in the world - the pose the body is actually in, not the
+// bind pose it was authored in. A skeleton fogged off its bind pose would fade in
+// and out as it walked away from where its own model file thinks it stands.
+out vec3 fragPosition;
 
 void main()
 {
@@ -43,6 +49,7 @@ void main()
     fragTexCoord = vertexTexCoord;
     fragColor = vertexColor;
     fragNormal = normalize(vec3(matNormal*skinnedNormal));
+    fragPosition = vec3(matModel*skinnedPosition);
 
     gl_Position = mvp*skinnedPosition;
 }

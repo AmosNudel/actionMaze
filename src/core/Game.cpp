@@ -90,6 +90,11 @@ void Game::Init()
     // the first frame of the first run, and that screen is what draws those.
     post.Load(assets);
 
+    // With it, and cheap for the same reason. This builds the two world programs
+    // rather than waiting for the level and the enemies to ask for them, which is
+    // fine: the AssetManager hands both the same ones back when they do.
+    fog.Load(assets);
+
     // Nothing else here: the gameplay assets and the level are loaded behind the
     // run-loading screen instead, the first time Start Game is pressed - see
     // LoadRunAssets and UpdateRunLoading. The Main Menu is on screen as soon as
@@ -2022,6 +2027,10 @@ void Game::DrawInGame()
         viewModel.Draw(camera.Get());
         viewModelEditor.Draw(viewModel, camera.Get());
     viewModel.EndPass();
+
+    // Before anything is drawn with them: the haze is a distance from the eye, and
+    // the eye is the one thing about it that moves - see render/Fog.h
+    fog.SetView(camera.Get().position);
 
     post.BeginPass();
 

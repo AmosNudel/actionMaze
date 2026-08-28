@@ -493,18 +493,15 @@ int Player::WeaponDamage(int weaponDamage) const
 //----------------------------------------------------------------------------------
 // Mana.
 //
-// The pool is arcane's second job - see the note in Config. It is a RESERVOIR and
-// not a faucet: spending on arcane banks more casts, and the only way to fill what
-// has been banked is still to kill something.
+// The pool does NOT move with arcane - see the note in Config for why it used to
+// and why it no longer does. What is left is a flat budget every character has the
+// same amount of, plus whatever gear and traits are granting on top.
+//
+// Still a RESERVOIR and not a faucet: the only way to fill it is to kill something.
 //----------------------------------------------------------------------------------
 int Player::MaxMana() const
 {
-    const StatBlock fighting = Fighting();
-
-    const int over = fighting.arc - Config::StatBase;
-
-    const int total = Config::ManaMax + (int)(over*Config::ManaPerArcane + 0.5f)
-                    + Combined().flatMana;
+    const int total = Config::ManaMax + Combined().flatMana;
 
     return (total < 1) ? 1 : total;
 }
