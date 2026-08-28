@@ -1,6 +1,6 @@
 #**************************************************************************************************
 #
-#   ActionMaze - makefile for desktop platforms (Windows / Linux / macOS)
+#   Dungeon Foray - makefile for desktop platforms (Windows / Linux / macOS)
 #
 #   Compiles every .cpp found under $(SRC_DIR) recursively, so new source files
 #   need no makefile change. Object files and generated header dependencies land
@@ -12,13 +12,16 @@
 #     make clean                remove objects and the executable
 #     make run                  build, then launch
 #
+#   The executable's icon is generated rather than checked in by hand:
+#     python tools/make_icon.py   redraw assets/icon/ from the menu backdrop
+#
 #   Based on the raylib makefile, Copyright (c) 2013-2019 Ramon Santamaria (@raysan5)
 #
 #**************************************************************************************************
 
 .PHONY: all clean run
 
-PROJECT_NAME  ?= ActionMaze
+PROJECT_NAME  ?= DungeonForay
 BUILD_MODE    ?= RELEASE
 PLATFORM      ?= PLATFORM_DESKTOP
 
@@ -82,8 +85,10 @@ ifeq ($(PLATFORM_OS),WINDOWS)
     # NOTE: WinMM library required to set high-res timer resolution
     LDLIBS = -lraylib -lopengl32 -lgdi32 -lwinmm
     EXT = .exe
-    # Executable icon and properties, if the raylib source tree provides them
-    RES = $(wildcard $(RAYLIB_PATH)/src/raylib.rc.data)
+    # The executable's icon and its Properties fields - see $(PROJECT_NAME).rc.
+    # This is what replaced raylib.rc.data out of the raylib source tree: that put
+    # raylib's own icon on the .exe, which is the wrong badge for a finished game.
+    RES = $(OBJ_DIR)/$(PROJECT_NAME).res
     # Uncomment to hide the console window in release builds
     #LDFLAGS += -Wl,--subsystem,windows
 endif
@@ -115,8 +120,15 @@ TARGET = $(PROJECT_NAME)$(EXT)
 
 all: $(TARGET)
 
-$(TARGET): $(OBJS)
+$(TARGET): $(OBJS) $(RES)
 	$(CXX) -o $@ $(OBJS) $(RES) $(CXXFLAGS) $(LDFLAGS) $(LDLIBS) -D$(PLATFORM)
+
+# Windows only - RES is empty everywhere else, so this rule is never asked for.
+# Depends on the .ico as well as the .rc: regenerating the icon has to relink,
+# and windres will not tell us it did not.
+$(OBJ_DIR)/$(PROJECT_NAME).res: $(PROJECT_NAME).rc assets/icon/dungeon_foray.ico
+	@mkdir -p $(dir $@)
+	windres $< -O coff -o $@
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@mkdir -p $(dir $@)

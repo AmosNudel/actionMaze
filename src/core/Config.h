@@ -20,7 +20,7 @@ namespace Config
     constexpr int   ScreenWidth   = 800;
     constexpr int   ScreenHeight  = 450;
     constexpr int   TargetFps     = 60;
-    constexpr char  WindowTitle[] = "ActionMaze";
+    constexpr char  WindowTitle[] = "Dungeon Foray";
 
     // Borderless at the desktop resolution rather than a real display mode
     // change: it alt-tabs cleanly and leaves the monitor alone if the game dies.

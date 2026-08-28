@@ -1,6 +1,6 @@
 # Credits
 
-Third-party assets used in ActionMaze, and what each one's licence asks of us.
+Third-party assets used in Dungeon Foray, and what each one's licence asks of us.
 
 Most of what is here is **CC0**, and every pack that ships its own licence text
 has that text kept beside the assets rather than only summarised here.

@@ -6,7 +6,7 @@ obj/
 *.dSYM/
 # The Linux/macOS binary. Leading slash so it can only mean the one at the root,
 # never a directory of the same name deeper in the tree.
-/ActionMaze
+/DungeonForay
 
 # ---- Vendor asset downloads ------------------------------------------------
 # The original packs, kept locally as source material to cut new models out of.

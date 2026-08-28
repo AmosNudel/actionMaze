@@ -1,4 +1,4 @@
-# ActionMaze
+# Dungeon Foray
 
 First person action game built on [raylib](https://www.raylib.com/), grown from the
 `[core] 3d camera fps` example. C++14, no dependencies beyond raylib.
@@ -6,7 +6,7 @@ First person action game built on [raylib](https://www.raylib.com/), grown from 
 ## Build
 
 ```sh
-make                    # release build -> ActionMaze.exe
+make                    # release build -> DungeonForay.exe
 make BUILD_MODE=DEBUG   # debug build (-g -O0)
 make run                # build and launch
 make clean              # remove obj/ and the executable

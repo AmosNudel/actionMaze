@@ -21,7 +21,7 @@ namespace
         // --- The game ------------------------------------------------------------
         // Authorship of the work as a whole. Copyright in the code and the design
         // arises when the work is made; this is the line that says whose it is.
-        { CreditSection::Game, "ActionMaze", "Amos Nudel", "design, code and game", "" },
+        { CreditSection::Game, "Dungeon Foray", "Amos Nudel", "design, code and game", "" },
 
         // --- Art -----------------------------------------------------------------
         { CreditSection::Art, "Dungeon art, props and decoration", "Kay Lousberg",

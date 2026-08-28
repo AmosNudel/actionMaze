@@ -1,0 +1,46 @@
+//----------------------------------------------------------------------------------
+// What Windows shows about the executable: its icon, and the fields the file's
+// Properties page reads.
+//
+// Compiled by windres into an object the linker folds in - see RES in the
+// Makefile. It replaces raylib's own raylib.rc.data, which is where the generic
+// raylib icon on the .exe came from.
+//
+// The icon itself is generated, not drawn: tools/make_icon.py cuts it out of the
+// menu's own backdrop so the badge on the desktop is the same picture the front
+// end opens on. Re-run that script after changing the sky or the tint.
+//----------------------------------------------------------------------------------
+
+#define IDI_ICON 101
+
+// Lowest numbered icon in the file is the one Explorer uses for the .exe, so this
+// wants to stay 101 and stay first
+IDI_ICON ICON "assets/icon/dungeon_foray.ico"
+
+1 VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEOS          0x4L        // VOS__WINDOWS32
+FILETYPE        0x1L        // VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        // 0409 is US English, 04b0 is Unicode - the pair Explorer looks for
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "Amos Nudel"
+            VALUE "FileDescription",  "Dungeon Foray"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "InternalName",     "DungeonForay"
+            VALUE "LegalCopyright",   "Copyright (c) Amos Nudel"
+            VALUE "OriginalFilename", "DungeonForay.exe"
+            VALUE "ProductName",      "Dungeon Foray"
+            VALUE "ProductVersion",   "1.0.0.0"
+        END
+    END
+
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

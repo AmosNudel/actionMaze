@@ -1,6 +1,6 @@
 /*******************************************************************************************
 *
-*   ActionMaze
+*   Dungeon Foray
 *
 *   Grown from the raylib [core] example - 3d camera fps, contributed by
 *   Agnis Aldins (@nezvers) and reviewed by Ramon Santamaria (@raysan5).
