@@ -54,10 +54,8 @@ namespace
           "brullov.itch.io/2d-platformer-asset-pack-castle-of-despair",
           "free - see pack" },
 
-        // Recorded honestly rather than quietly used - the pack these came from was
-        // never established. See the note in CREDITS.md, which is the open item.
-        { CreditSection::Art, "Impact effect sheets", "source not established",
-          "brought over from the mobile game", "UNRESOLVED" },
+        { CreditSection::Art, "Impact effect sheets", "bigdamnhero6",
+          "bigdamnhero6.itch.io/free-2d-vfx-pack", "CC0" },
 
         // --- Audio ---------------------------------------------------------------
         { CreditSection::Audio, "Background music", "ansimuz (Luis Zuno)",

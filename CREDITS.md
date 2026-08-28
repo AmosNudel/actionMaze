@@ -77,25 +77,18 @@ constant too. Trying a different one from this pack is only a path change in
 
 Replaced the VoidPix Skybox Pack, which shipped no licence of any kind.
 
-### VFX sprite sheets — source unidentified ⚠️
+### Free 2D VFX Pack — bigdamnhero6
 
-- Source: **unknown**. Brought over from the mobile-game project, where the
-  credits table records them as "VFX packs, TODO" and no licence file shipped
-  with them.
-- Licence: **not established**
+- Source: <https://bigdamnhero6.itch.io/free-2d-vfx-pack>
+- Licence: **CC0 1.0 Universal**
+- Author: bigdamnhero6
 - Used for: the impact effect a magic mote bursts into. Eight horizontal strips
-  of 128px square frames.
+  of 128px square frames: blood splatter, both muzzle flashes, particle splash,
+  explosion, poison smoke, flame, and lightning spark.
 - In repo: `assets/textures/vfx/`
 
-This is the one entry in this file that does not meet the rule at the bottom of
-it, and it is recorded here rather than quietly used so that it cannot be
-forgotten. An asset with no stated licence is not public domain, it is all
-rights reserved. Either the pack is identified and its terms written down, or
-these eight sheets are replaced with CC0 equivalents before anything ships.
-
-Nothing else depends on them being these particular files: `VfxManager` reads a
-path, a frame count and a rate per sheet from one table in `Vfx.cpp`, so a
-swap is eight rows and no code.
+The pack has ten effects; its two dust sheets are not used. CC0 does not require
+attribution, but the source is recorded here for provenance.
 
 ### Castle of Despair HUD art — brullov ⚠️ not CC0
 
@@ -191,8 +184,6 @@ document in the repo — read that page before shipping commercially.
 - [ ] Decide whether to credit these in-game. None of them requires it — KayKit
       asks nicely, Screaming Brain Studios explicitly says credit is optional —
       but between them they are doing essentially all of the visual work.
-- [ ] **Resolve the VFX sheets above.** Identify the pack and record its terms,
-      or replace them. This is the only unlicensed art in the project.
 - [ ] Read brullov's and Hewett Tsoi's actual terms before shipping commercially.
       Both are free to use and neither is CC0, which is a different thing, and
       "free" on itch.io and dafont covers a range that includes conditions.
