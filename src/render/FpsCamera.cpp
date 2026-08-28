@@ -93,6 +93,40 @@ void FpsCamera::Shake(float trauma)
     if (shakeTrauma > 1.0f) shakeTrauma = 1.0f;
 }
 
+void FpsCamera::BeginDeathFall()
+{
+    deathPosition = camera.position;
+    deathTarget = camera.target;
+    deathUp = camera.up;
+}
+
+void FpsCamera::UpdateDeathFall(float elapsed)
+{
+    // Normalised against the whole dying beat - fall and delay and fade together
+    // - so the keel-over is still gaining ground as the screen goes black rather
+    // than having already settled with the fade barely started.
+    float t = elapsed/(Config::DeathFallToFadeDelay + Config::DeathFadeDuration);
+    if (t > 1.0f) t = 1.0f;
+
+    // Eased in: a body does not keel over at constant speed, it starts slow and
+    // goes
+    const float ease = t*t;
+
+    const Vector3 forward = Vector3Normalize(Vector3Subtract(deathTarget, deathPosition));
+    const Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, deathUp));
+
+    const Vector3 drop = { 0.0f, -Config::DeathFallDrop*ease, 0.0f };
+    const Vector3 sway = Vector3Scale(right, Config::DeathFallSway*ease);
+    const Vector3 offset = Vector3Add(drop, sway);
+
+    camera.position = Vector3Add(deathPosition, offset);
+    camera.target = Vector3Add(deathTarget, offset);
+
+    // Rolled around the view's own forward axis, so it reads as the head tipping
+    // toward one shoulder rather than the world tilting under it
+    camera.up = Vector3RotateByAxisAngle(deathUp, forward, Config::DeathFallTilt*DEG2RAD*ease);
+}
+
 Vector3 FpsCamera::Forward() const
 {
     return Vector3Normalize(Vector3Subtract(camera.target, camera.position));

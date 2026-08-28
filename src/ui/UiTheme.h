@@ -115,3 +115,8 @@ bool UiGlyphButton(Rectangle r, bool enabled, float ls, const UiInput &in,
 // A row: a plate with a title along the left and a value along the right. What every
 // stat and every menu entry is made of.
 void UiRow(Rectangle r, float ls, bool highlighted, Color accent);
+
+// A fullscreen black overlay at `alpha` (0 clear, 1 opaque) - what every fade
+// between screens is drawn out of, whether that is a menu transition (see
+// core/Fader.h), the portal dwell going dark, or the player's own death.
+void UiFadeOverlay(float alpha);

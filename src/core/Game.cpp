@@ -8,6 +8,7 @@
 #include "raylib.h"
 #include "raymath.h"
 #include "ui/UiText.h"
+#include "ui/UiTheme.h"
 
 #include <cmath>
 #include <ctime>
@@ -59,12 +60,34 @@ void Game::Init()
 
     InitAudioDevice();
     SetTargetFPS(Config::TargetFps);
+    SetMasterVolume(masterVolume);
 
     // Before anything that measures a string. Every layout in the game is laid out
     // against whatever UiFont() returns, and the default font is a narrower face -
     // a panel fitted before the load and drawn after it is a panel that overflows.
+    // It is also the one asset every front-end page needs before it can draw a
+    // word, so it is the only load boot actually waits on - see LoadRunAssets for
+    // everything else.
     LoadUiFont();
 
+    // Nothing else here: the gameplay assets and the level are loaded behind the
+    // run-loading screen instead, the first time Start Game is pressed - see
+    // LoadRunAssets and UpdateRunLoading. The Main Menu is on screen as soon as
+    // the boot loading screen's minimum time is up.
+    appState = AppState::BootLoading;
+    pendingState = AppState::BootLoading;
+}
+
+//----------------------------------------------------------------------------------
+// The once-ever gameplay assets - see the note on the declaration in Game.h.
+//
+// What Init used to do outright before there was a front end for a loading screen
+// to stand in front of it. StartNewRun (the level, the starting kit, the player
+// placed on it) is deliberately not here: that runs every time a fresh run
+// starts, not just the first.
+//----------------------------------------------------------------------------------
+void Game::LoadRunAssets()
+{
     sky.Load(assets, Config::SkyCubemap);
 
     viewModel.Load(assets);
@@ -79,12 +102,6 @@ void Game::Init()
     loot.Load(assets);
     pickups.Load(assets);
     treasure.Load(assets);
-
-    // Everything above is a once-ever asset load with no level or character to be
-    // ready yet. Everything a RUN needs - the level itself, the starting kit, the
-    // player placed on it - is StartNewRun's job, and Restart calls exactly the
-    // same function.
-    StartNewRun();
 }
 
 //----------------------------------------------------------------------------------
@@ -675,9 +692,180 @@ void Game::FreeCursor(bool free)
     else DisableCursor();
 }
 
+//----------------------------------------------------------------------------------
+// One frame, whichever screen owns it.
+//
+// The fader runs regardless of state - it is what is CARRYING the player from one
+// state to the next - and EnterState is what actually performs that switch, on
+// the one frame the screen is fully black behind it. See core/Fader.h and the
+// AppState note in Game.h.
+//----------------------------------------------------------------------------------
 void Game::Update(float delta)
 {
     input = InputState::Poll();
+    fader.Update(delta);
+
+    switch (appState)
+    {
+        case AppState::BootLoading: UpdateBootLoading(delta); break;
+        case AppState::MainMenu:    UpdateMainMenu(delta);    break;
+        case AppState::Options:     UpdateOptions(delta);     break;
+        case AppState::Credits:     UpdateCredits(delta);     break;
+        case AppState::RunLoading:  UpdateRunLoading(delta);  break;
+        case AppState::InGame:      UpdateInGame(delta);      break;
+    }
+
+    if (fader.AtBlack() && (appState != pendingState)) EnterState(pendingState);
+}
+
+void Game::RequestAppState(AppState next)
+{
+    pendingState = next;
+    fader.Start();
+}
+
+void Game::EnterState(AppState next)
+{
+    appState = next;
+
+    switch (next)
+    {
+        case AppState::BootLoading:
+        case AppState::RunLoading:
+            loadingElapsed = 0.0f;
+            runLoadStage = RunLoadStage::Enter;
+            break;
+
+        case AppState::MainMenu:
+            mainMenu.Show();
+            FreeCursor(true);
+            break;
+
+        case AppState::Options:
+            options.Show();
+            break;
+
+        case AppState::Credits:
+            credits.Show();
+            break;
+
+        case AppState::InGame:
+            FreeCursor(false);
+            break;
+    }
+}
+
+void Game::UpdateBootLoading(float delta)
+{
+    loadingElapsed += delta;
+
+    if (loadingElapsed >= Config::BootLoadingMinTime) RequestAppState(AppState::MainMenu);
+}
+
+void Game::UpdateMainMenu(float delta)
+{
+    (void)delta;
+
+    switch (mainMenu.Update())
+    {
+        case MainMenu::Choice::Start:   RequestAppState(AppState::RunLoading); break;
+        case MainMenu::Choice::Options: RequestAppState(AppState::Options);    break;
+        case MainMenu::Choice::Credits: RequestAppState(AppState::Credits);    break;
+
+        // Straight out, the same as every other Quit on these pages - there is
+        // nothing to save from the front end.
+        case MainMenu::Choice::Exit:    quitting = true; break;
+
+        default: break;
+    }
+}
+
+void Game::UpdateOptions(float delta)
+{
+    (void)delta;
+
+    switch (options.Update())
+    {
+        case OptionsScreen::Choice::Back: RequestAppState(AppState::MainMenu); break;
+
+        case OptionsScreen::Choice::ToggleFullscreen:
+            ToggleBorderlessWindowed();
+            fullscreenOn = !fullscreenOn;
+            break;
+
+        case OptionsScreen::Choice::VolumeDown:
+            masterVolume = fmaxf(0.0f, masterVolume - 0.1f);
+            SetMasterVolume(masterVolume);
+            break;
+
+        case OptionsScreen::Choice::VolumeUp:
+            masterVolume = fminf(1.0f, masterVolume + 0.1f);
+            SetMasterVolume(masterVolume);
+            break;
+
+        default: break;
+    }
+}
+
+void Game::UpdateCredits(float delta)
+{
+    (void)delta;
+
+    if (credits.Update() == CreditsScreen::Choice::Back) RequestAppState(AppState::MainMenu);
+}
+
+//----------------------------------------------------------------------------------
+// The run loading screen, in two ticks rather than one.
+//
+// LoadRunAssets and StartNewRun are blocking calls on the main thread - raylib's
+// GL-bound loads are not safe to call off it - so the only way this screen is
+// ever actually SEEN before the engine blocks on them is to let one Update/Draw
+// cycle pass with nothing but the page itself drawn (Enter), and only do the
+// heavy work on the next one (Loading). Done just holds the result on screen for
+// its own minimum time, the same reason BootLoading does.
+//----------------------------------------------------------------------------------
+void Game::UpdateRunLoading(float delta)
+{
+    switch (runLoadStage)
+    {
+        case RunLoadStage::Enter:
+            runLoadStage = RunLoadStage::Loading;
+            break;
+
+        case RunLoadStage::Loading:
+            if (!runAssetsLoaded)
+            {
+                LoadRunAssets();
+                runAssetsLoaded = true;
+            }
+
+            StartNewRun();
+
+            runLoadStage = RunLoadStage::Done;
+            loadingElapsed = 0.0f;
+            break;
+
+        case RunLoadStage::Done:
+            loadingElapsed += delta;
+
+            if (loadingElapsed >= Config::RunLoadingMinTime) RequestAppState(AppState::InGame);
+            break;
+    }
+}
+
+//----------------------------------------------------------------------------------
+// Everything Update() did before there was a front end for it to sit behind - see
+// the note on the declaration in Game.h.
+//----------------------------------------------------------------------------------
+void Game::UpdateInGame(float delta)
+{
+    // The camera is still falling. Nothing below this matters until the beat
+    // runs out - see UpdateDying.
+    if (runPhase == RunPhase::Dying)
+    {
+        UpdateDying(delta);
+        return;
+    }
 
     // The run is over. Nothing below this matters until Restart puts a fresh one
     // in play - see UpdateRunEnd.
@@ -692,8 +880,26 @@ void Game::Update(float delta)
     UpdateWorld(delta);
 
     // Checked after the world has moved, so a blow that emptied the pool this very
-    // frame is what actually ends the run - not a frame behind it.
+    // frame is what actually starts the fall - not a frame behind it. The cursor
+    // stays captured through the fall - see UpdateDying for where it is freed.
     if (!player.IsAlive())
+    {
+        runPhase = RunPhase::Dying;
+        deathTimer = 0.0f;
+        camera.BeginDeathFall();
+    }
+}
+
+//----------------------------------------------------------------------------------
+// The camera keeling over, for a beat, before the run-end screen takes it - see
+// Config::DeathFallToFadeDelay and its neighbours, and FpsCamera::UpdateDeathFall.
+//----------------------------------------------------------------------------------
+void Game::UpdateDying(float delta)
+{
+    deathTimer += delta;
+    camera.UpdateDeathFall(deathTimer);
+
+    if (deathTimer >= Config::DeathFallToFadeDelay + Config::DeathFadeDuration)
     {
         runPhase = RunPhase::Defeated;
         runEnd.Open(false, level.Depth(), player.level);
@@ -1143,7 +1349,66 @@ void Game::UpdateWorld(float delta)
     // TODO: pickups.Update(delta, player);
 }
 
+//----------------------------------------------------------------------------------
+// One frame, whichever screen owns it - the Draw half of the dispatch in Update.
+//
+// Every front-end page is a plain 2D draw with nothing loaded for it to depend
+// on, so each gets its own small BeginDrawing/EndDrawing pair; InGame is
+// everything Draw() did before any of this existed, moved into DrawInGame
+// unchanged bar the death fade. The fader draws last in every case - it is
+// what is ON TOP of whichever screen this frame actually showed.
+//----------------------------------------------------------------------------------
 void Game::Draw()
+{
+    switch (appState)
+    {
+        case AppState::BootLoading:
+            BeginDrawing();
+                ClearBackground(BLACK);
+                loadingScreen.Draw("LOADING", loadingElapsed);
+                fader.Draw();
+            EndDrawing();
+            break;
+
+        case AppState::MainMenu:
+            BeginDrawing();
+                ClearBackground(BLACK);
+                mainMenu.Draw();
+                fader.Draw();
+            EndDrawing();
+            break;
+
+        case AppState::Options:
+            BeginDrawing();
+                ClearBackground(BLACK);
+                options.Draw(fullscreenOn, masterVolume);
+                fader.Draw();
+            EndDrawing();
+            break;
+
+        case AppState::Credits:
+            BeginDrawing();
+                ClearBackground(BLACK);
+                credits.Draw();
+                fader.Draw();
+            EndDrawing();
+            break;
+
+        case AppState::RunLoading:
+            BeginDrawing();
+                ClearBackground(BLACK);
+                loadingScreen.Draw("ENTERING THE DUNGEON", loadingElapsed);
+                fader.Draw();
+            EndDrawing();
+            break;
+
+        case AppState::InGame:
+            DrawInGame();
+            break;
+    }
+}
+
+void Game::DrawInGame()
 {
     // The held weapons go into their own target first, with their own depth
     // buffer, so nothing in the world can clip through them
@@ -1204,7 +1469,18 @@ void Game::Draw()
             const float into = (chaos.dwell - (Config::PortalDwell - Config::PortalFade))
                              / Config::PortalFade;
 
-            DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, into));
+            UiFadeOverlay(into);
+        }
+
+        // The camera keeling over, going dark for the back half of the beat - see
+        // UpdateDying and Config::DeathFallToFadeDelay. Same idea as the portal
+        // fade just above: the last of a moment spent going dark rather than
+        // cutting out of it.
+        if ((runPhase == RunPhase::Dying) && (deathTimer > Config::DeathFallToFadeDelay))
+        {
+            const float into = (deathTimer - Config::DeathFallToFadeDelay)/Config::DeathFadeDuration;
+
+            UiFadeOverlay(fminf(into, 1.0f));
         }
 
         // Over everything, because both are modal - see the notes in
@@ -1218,6 +1494,11 @@ void Game::Draw()
         // reachable any more (UpdateRunEnd shortcuts past UpdateScreens entirely),
         // so this is the one page actually on top when it is up.
         runEnd.Draw();
+
+        // Last of all - see the note on Game::Draw. Only visible while a
+        // transition is actually in flight (RunLoading fading into InGame); zero
+        // alpha the rest of the time.
+        fader.Draw();
 
     EndDrawing();
 }

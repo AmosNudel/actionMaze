@@ -35,6 +35,21 @@ public:
     //------------------------------------------------------------------------------
     void Shake(float trauma);
 
+    //------------------------------------------------------------------------------
+    // The player has died: the camera keels over on its own from here rather than
+    // tracking the body or the mouse.
+    //
+    // BeginDeathFall captures the view exactly as death left it - not the body
+    // position, which would have the fall re-derive itself from wherever the
+    // corpse ends up and drift under it. UpdateDeathFall is then driven purely by
+    // elapsed time, the same way Shake is a function of trauma rather than of
+    // anything Update would otherwise be reading this frame; call it instead of
+    // Update while dying, since there is no body or mouse input left to place the
+    // camera from.
+    //------------------------------------------------------------------------------
+    void BeginDeathFall();
+    void UpdateDeathFall(float elapsed);
+
     const Camera3D &Get() const { return camera; }
     float Yaw() const { return lookRotation.x; }
 
@@ -57,4 +72,11 @@ private:
     // How rough the view is right now, 0 (still) to 1 (as rough as it gets) -
     // see Shake and Config::CameraShakeDecay.
     float shakeTrauma = 0.0f;
+
+    // The view at the moment BeginDeathFall was called - what UpdateDeathFall
+    // falls away from, so the motion reads as one continuous keel-over rather
+    // than restarting from wherever the camera happens to be each frame.
+    Vector3 deathPosition{};
+    Vector3 deathTarget{};
+    Vector3 deathUp{};
 };

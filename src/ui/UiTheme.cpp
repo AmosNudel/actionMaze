@@ -174,3 +174,10 @@ void UiRow(Rectangle r, float ls, bool highlighted, Color accent)
 
     if (highlighted) DrawRectangleLinesEx(r, 2.0f*ls, Fade(accent, 0.9f));
 }
+
+void UiFadeOverlay(float alpha)
+{
+    if (alpha <= 0.0f) return;
+
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, alpha));
+}

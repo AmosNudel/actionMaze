@@ -3,6 +3,7 @@
 #include "combat/Magic.h"
 #include "combat/Projectile.h"
 #include "combat/Weapon.h"
+#include "core/Fader.h"
 #include "core/Input.h"
 #include "debug/CombatDebug.h"
 #include "debug/ViewModelEditor.h"
@@ -19,7 +20,11 @@
 #include "render/Vfx.h"
 #include "render/WeaponPreview.h"
 #include "ui/CharacterSheet.h"
+#include "ui/CreditsScreen.h"
 #include "ui/Hud.h"
+#include "ui/LoadingScreen.h"
+#include "ui/MainMenu.h"
+#include "ui/OptionsScreen.h"
 #include "ui/PauseMenu.h"
 #include "ui/RunEndScreen.h"
 #include "ui/ShopScreen.h"
@@ -52,6 +57,64 @@ private:
     void Update(float delta);
     void Draw();
     void Shutdown();
+
+    // Everything Draw() did before there was a front end for it to sit behind -
+    // see the note on UpdateInGame. Only reached while appState == InGame.
+    void DrawInGame();
+
+    //------------------------------------------------------------------------------
+    // Which screen owns the frame, before there is even a run to be in.
+    //
+    // BootLoading and RunLoading both exist for the same reason: LoadRunAssets and
+    // StartNewRun are blocking calls, and a loading screen has to actually be on
+    // screen - drawn and presented - before Update blocks on one, or there is
+    // nothing for it to have shown. MainMenu, Options and Credits are the pages
+    // reachable from the front door; InGame is everything Update/Draw did before
+    // any of this existed, moved into UpdateInGame without changing shape.
+    //------------------------------------------------------------------------------
+    enum class AppState { BootLoading, MainMenu, Options, Credits, RunLoading, InGame };
+
+    // What RunLoading is doing right now - see the note on UpdateRunLoading for
+    // why loading is split across states rather than happening the instant
+    // RunLoading is entered.
+    enum class RunLoadStage { Enter, Loading, Done };
+
+    // Sets `pendingState` and starts the fader; the actual switch happens once the
+    // fade reaches black - see EnterState and the note on core/Fader.h.
+    void RequestAppState(AppState next);
+
+    // Called the one frame the fader is fully black, with `next` about to become
+    // the visible state. Where each state's arrival work lives - showing a page,
+    // taking or freeing the cursor, resetting a stage - so Update's dispatch
+    // doesn't have to know any of it.
+    void EnterState(AppState next);
+
+    void UpdateBootLoading(float delta);
+    void UpdateMainMenu(float delta);
+    void UpdateOptions(float delta);
+    void UpdateCredits(float delta);
+    void UpdateRunLoading(float delta);
+
+    // Everything Update() did before the front end existed: the run-phase switch,
+    // UpdateScreens, UpdateWorld, the death check. Only reached while
+    // appState == InGame.
+    void UpdateInGame(float delta);
+
+    // The beat between death and the run-end screen - see UpdateInGame's death
+    // check and Config::DeathFallToFadeDelay.
+    void UpdateDying(float delta);
+
+    //------------------------------------------------------------------------------
+    // The once-ever gameplay assets: sky, view models, enemies, HUD, projectiles,
+    // vfx, portal, events, vendors, loot, pickups, treasure.
+    //
+    // Split out of Init() so the boot screen only ever waits on LoadUiFont - the
+    // one thing every page here needs before it can draw a word - and the Main
+    // Menu can be on screen before any of this has run. Called once, the first
+    // time Start Game is pressed (see `runAssetsLoaded`); StartNewRun still runs
+    // every time a fresh run starts, exactly as before this existed.
+    //------------------------------------------------------------------------------
+    void LoadRunAssets();
 
     // What the equipped weapons do this frame, read back from the view model
     void RefreshLoadout();
@@ -214,6 +277,13 @@ private:
     ViewModel viewModel;
     ViewModelEditor viewModelEditor;
 
+    // The front end - see the AppState note above
+    Fader fader;
+    MainMenu mainMenu;
+    OptionsScreen options;
+    CreditsScreen credits;
+    LoadingScreen loadingScreen;
+
     // What the shop and character pages draw instead of a weapon's name - see
     // render/WeaponPreview.h. Owned here rather than by either page: both read
     // from it, and a render target per page would be twice the GPU memory for a
@@ -261,11 +331,44 @@ private:
     //------------------------------------------------------------------------------
     // Whether there is a run in progress, and how it ended if not.
     //
-    // Defeated the frame Player::IsAlive() goes false; Victorious the frame the
-    // player steps into the portal on Config::VictoryDepth with it cleared, instead
-    // of the ordinary Descend. Either way the world stops ticking - see
-    // UpdateRunEnd - and the only way back to Playing is StartNewRun.
+    // Dying the frame Player::IsAlive() goes false - the camera keels over on its
+    // own for a beat before the screen goes black, see UpdateDying - and only then
+    // Defeated. Victorious the frame the player steps into the portal on
+    // Config::VictoryDepth with it cleared, instead of the ordinary Descend.
+    // Either way the world stops ticking - see UpdateRunEnd - and the only way
+    // back to Playing is StartNewRun.
     //------------------------------------------------------------------------------
-    enum class RunPhase { Playing, Defeated, Victorious };
+    enum class RunPhase { Playing, Dying, Defeated, Victorious };
     RunPhase runPhase = RunPhase::Playing;
+
+    // How long the current Dying beat has been running - see UpdateDying.
+    float deathTimer = 0.0f;
+
+    //------------------------------------------------------------------------------
+    // Which screen is up, and where the fader is taking it.
+    //
+    // `pendingState` is only meaningful while the fader is mid-transition: it is
+    // what EnterState switches `appState` to the moment the screen goes black.
+    // Equal to `appState` the rest of the time, which is also how the fade-driven
+    // switch in Update tells "nothing to do" from "arrived".
+    //------------------------------------------------------------------------------
+    AppState appState = AppState::BootLoading;
+    AppState pendingState = AppState::BootLoading;
+
+    // Where RunLoading is in its own two-tick sequence - see UpdateRunLoading.
+    RunLoadStage runLoadStage = RunLoadStage::Enter;
+
+    // How long the current loading screen (boot or run) has been up - drives its
+    // minimum visible time and the animated dots on it. Reset by EnterState.
+    float loadingElapsed = 0.0f;
+
+    // Whether LoadRunAssets has run yet - see its own note. False only until the
+    // first Start Game press; StartNewRun runs every time regardless.
+    bool runAssetsLoaded = false;
+
+    // The runtime settings Options controls. Session-only - nothing here is
+    // written to disk, matching that nothing else in the project persists state
+    // between launches either.
+    bool fullscreenOn = Config::Fullscreen;
+    float masterVolume = 1.0f;
 };

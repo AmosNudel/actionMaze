@@ -44,6 +44,22 @@ namespace Config
     // Where runtime data lives, relative to the working directory
     constexpr char  AssetDir[]    = "assets/";
 
+    // Screen flow ---------------------------------------------------------------
+    // How long a black-to-clear (or clear-to-black) screen transition takes -
+    // see core/Fader.h. Shared by every menu-to-menu hop, so the whole front end
+    // feels like one consistent cut rather than a different fade per screen.
+    constexpr float ScreenFadeDuration  = 0.4f;
+
+    // The boot loading screen has nothing heavy to do before the menu can show -
+    // see the note on Game::LoadRunAssets - so this is purely so it does not
+    // flash by unnoticed rather than time actually spent loading.
+    constexpr float BootLoadingMinTime  = 0.35f;
+
+    // The run loading screen DOES have real work behind it (LoadRunAssets plus
+    // the level itself), but a floor that happens to load fast still holds this
+    // long, for the same reason as above.
+    constexpr float RunLoadingMinTime   = 0.5f;
+
     // Body movement -----------------------------------------------------------
     // Speeds are indoor scale: the template's 20 units/s is ~72 km/h, which turns
     // a three unit corridor into a pinball table. Gravity and jump are unchanged,
@@ -1006,6 +1022,21 @@ namespace Config
     constexpr float PortalDwell         = 2.2f;
     // The last of that spent fading the screen out, so the new floor is not a cut
     constexpr float PortalFade          = 1.0f;
+
+    //--------------------------------------------------------------------------
+    // Death: the camera keeling over before the run-end screen takes it.
+    //
+    // A beat rather than a cut - the fall plays out on its own for
+    // DeathFallToFadeDelay before the screen starts going dark, and is still
+    // playing underneath the fade for the rest of it. Drop/sway/tilt are the
+    // magnitude of the fall itself, applied the same way FpsCamera::Shake is:
+    // after the view is otherwise placed, so it never fights the aim.
+    //--------------------------------------------------------------------------
+    constexpr float DeathFallToFadeDelay = 0.5f;
+    constexpr float DeathFadeDuration    = 0.6f;
+    constexpr float DeathFallDrop        = 0.6f;    // World units, straight down
+    constexpr float DeathFallSway        = 0.35f;   // World units, to one side
+    constexpr float DeathFallTilt        = 50.0f;   // Degrees, rolled onto that side
 
     // The portal itself, built out of light rather than out of a model - see
     // render/Portal.h for why.
