@@ -16,15 +16,24 @@ class Level;
 // answers the one question the rest of the game has: is the player close enough to
 // one to open its counter, and which.
 //
-// --- Placeholder art -----------------------------------------------------------------
-// There is none yet. A vendor is drawn as a column of light in their own colour with
-// their name floating over it, which is the same object the events and the portal
-// already use. That is deliberate rather than lazy: the player has already learned
-// that a column of light is something to walk up to, and a vendor is exactly that.
-// Swapping in a model later is one function and one table column.
+// --- The art -------------------------------------------------------------------------
+// A character standing in an aura of their own colour, with their name over their
+// head - see the note in Npc.h for which model is which and why. The aura is the
+// column of light this used to be, cut down to a pool and its motes: the player
+// already learned from the portal and the event markers that coloured light is
+// something to walk into, and that lesson is worth keeping even once there is
+// somebody standing in it.
 //
-// It also spins and bobs the way the defend relic does, so it reads as a thing that is
-// there for you rather than as scenery someone left switched on.
+// --- Why the idle is procedural --------------------------------------------------
+// The dungeon pack's adventurers are STATIC. No skin, no clips, just six loose
+// body-part meshes with flat materials - there is no idle animation in the file to
+// play. So the life comes from moving the whole model: a slow breath up and down and
+// a slight sway, out of phase per vendor so three of them on one floor do not
+// breathe in unison like a machine.
+//
+// They also turn to face the player, which is the one piece of animation that
+// actually matters for somebody you walk up to and trade with - a vendor with his
+// back to you reads as scenery however well he is lit.
 //----------------------------------------------------------------------------------
 class VendorManager
 {
@@ -66,14 +75,50 @@ private:
     {
         NpcKind kind = NpcKind::Merchant;
         Vector3 at{};
+
+        // Where this one is in its own breath, in radians. Rolled at placement so
+        // three vendors on a floor are visibly three people rather than one person
+        // drawn three times - see the note above.
+        float phase = 0.0f;
     };
+
+    //------------------------------------------------------------------------------
+    // One vendor's model, by kind. Owned by the AssetManager; null when the file is
+    // missing, which costs the character and nothing else.
+    //
+    // `scale` fits the model's own height to Config::VendorHeight, worked out once
+    // at load from its bounding box rather than written down per row: the three
+    // adventurers are not authored at the same size, and a hand-tuned number per
+    // row would be three numbers to redo the day the pack is re-exported.
+    //
+    // `foot` is how far the model's lowest point sits below its origin, so a
+    // character stands ON the floor instead of half through it. Same reason it is
+    // measured rather than declared.
+    //------------------------------------------------------------------------------
+    struct Look
+    {
+        Model *model = nullptr;
+        float scale = 1.0f;
+        float foot = 0.0f;
+    };
+
+    Look looks[(int)NpcKind::Count];
+
+    // One vendor's body - facing, breath and sway. Split out of Draw because Draw's
+    // own job is the aura and the order the two go down in.
+    void DrawFigure(const Vendor &vendor, const Camera3D &camera) const;
 
     std::vector<Vendor> vendors;
 
-    // Shared by every column, so the three turn together. One clock rather than one
-    // per vendor: they are the same object in three colours, and three clocks that
-    // could drift apart would be three objects that look like a mistake.
+    // Shared by every aura, so the three turn together. One clock rather than one
+    // per vendor: the light is the same object in three colours, and three clocks
+    // that could drift apart would be three objects that look like a mistake. The
+    // BODIES are the opposite case and carry a phase each - see Vendor::phase.
     float spin = 0.0f;
+
+    // Seconds since the floor was built, for the breath. Separate from `spin`
+    // because the two are different speeds and one of them wraps.
+    float clock = 0.0f;
 
     Texture2D *glow = nullptr;      // Shared, owned by the AssetManager
 };

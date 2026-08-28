@@ -8,25 +8,24 @@ namespace
     //------------------------------------------------------------------------------
     // The entries, in order, and what each one is for.
     //
-    // DESCEND is on here as well as being something the player walks into. The
-    // portal is the way down and always will be - going down is meant to be an act
-    // rather than a menu choice - but the walk to it is most of a minute across a
-    // floor that is already finished, and a player who has cleared three floors does
-    // not need to be made to do it a fourth time to see what floor four looks like.
+    // OPTIONS is where DESCEND used to be. The shortcut past the walk was a
+    // shortcut past the one act the game is built around - the portal IS how you
+    // go down, and a menu entry that did it instead meant the walk only ever
+    // happened to players who had not found the menu. It went; the portal stayed.
     //
-    // It is deliberately below Character, so the eye lands on the thing you usually
-    // want first, and it is greyed out until the floor is actually cleared - which
-    // is what keeps it a shortcut past the walk rather than a way round the floor.
+    // What belongs in its place is the thing a paused player most often actually
+    // wants, which is not a game action at all: the window, the sound, the volume.
+    // Those lived only on the front end before, which meant changing them meant
+    // ending the run - the single worst place to put a mute button.
     //------------------------------------------------------------------------------
     struct Entry
     {
         const char *label;
         const char *note;       // Second line, smaller. Null for none.
 
-        // The accent an entry is picked out in when the cursor is on it. Resume and
-        // Character are ordinary business and share the page's own gold; Descend is
-        // the green everything else in this game uses for "you may go now"; Quit is
-        // red, because it is the one entry that cannot be taken back.
+        // The accent an entry is picked out in when the cursor is on it. The first
+        // three are ordinary business and share the page's own gold; Quit is red,
+        // because it is the one entry that cannot be taken back.
         Color accent;
     };
 
@@ -34,10 +33,10 @@ namespace
 
     constexpr Entry Entries[] =
     {
-        { "RESUME",    "back to the floor",           UiAccent },
-        { "CHARACTER", "spend points",                UiAccent },
-        { "DESCEND",   "skip the walk to the portal", UiReady },
-        { "QUIT",      "to desktop",                  QuitRed },
+        { "RESUME",    "back to the floor",         UiAccent },
+        { "CHARACTER", "spend points",              UiAccent },
+        { "OPTIONS",   "window, sound and volume",  UiAccent },
+        { "QUIT",      "to desktop",                QuitRed },
     };
 
     constexpr int Count = (int)(sizeof(Entries)/sizeof(Entries[0]));
@@ -57,13 +56,6 @@ namespace
 
     constexpr float TitleTop    = 10.0f;
     constexpr float EntriesTop  = 110.0f;
-}
-
-bool PauseMenu::EntryEnabled(int index, bool canDescend)
-{
-    if (index == (int)Choice::Descend - 1) return canDescend;
-
-    return true;
 }
 
 void PauseMenu::Toggle()
@@ -106,7 +98,7 @@ PauseMenu::Layout PauseMenu::Measure()
     return out;
 }
 
-PauseMenu::Choice PauseMenu::Update(bool canDescend)
+PauseMenu::Choice PauseMenu::Update()
 {
     if (!open) return Choice::None;
 
@@ -152,15 +144,14 @@ PauseMenu::Choice PauseMenu::Update(bool canDescend)
     }
 
     if (!chosen) return Choice::None;
-    if (!EntryEnabled(cursor, canDescend)) return Choice::None;
 
-    // The enum runs None, Resume, Character, Descend, Quit - so entry i is i + 1.
+    // The enum runs None, Resume, Character, Options, Quit - so entry i is i + 1.
     // Tied to the table's order on purpose: adding an entry means adding both, and
     // the two sitting next to each other in this file is what makes that obvious.
     return (Choice)(cursor + 1);
 }
 
-void PauseMenu::Draw(bool canDescend) const
+void PauseMenu::Draw() const
 {
     if (!open) return;
 
@@ -182,32 +173,18 @@ void PauseMenu::Draw(bool canDescend) const
     for (int i = 0; i < Count; ++i)
     {
         const Rectangle box = page.entries[i];
-        const bool enabled = EntryEnabled(i, canDescend);
-        const bool selected = (i == cursor) && enabled;
+        const bool selected = (i == cursor);
 
         UiRow(box, ls, selected, Entries[i].accent);
 
-        // The accent as a tab down the left edge, and only on an entry that can
-        // actually be chosen. A greyed row with a bright stripe on it is a row that
-        // looks half live, which is the one thing this page must not be ambiguous
-        // about.
-        if (enabled)
-        {
-            DrawRectangleRec({ box.x, box.y, 4.0f*ls, box.height }, Entries[i].accent);
-        }
-
-        const Color label = !enabled ? UiOff : (selected ? Entries[i].accent : UiInk);
+        // The accent as a tab down the left edge
+        DrawRectangleRec({ box.x, box.y, 4.0f*ls, box.height }, Entries[i].accent);
 
         UiLabel(Entries[i].label, box.x + EntryPad*ls, box.y + 10.0f*ls,
-                LabelSize*ls, label);
+                LabelSize*ls, selected ? Entries[i].accent : UiInk);
 
-        // The note says why an entry is off as well as what it does. An entry that is
-        // simply greyed out with no reason beside it is one the player has to guess
-        // the rule of.
-        const char *note = enabled ? Entries[i].note : "clear the floor first";
-
-        UiLabel(note, box.x + EntryPad*ls, box.y + (10.0f + LabelSize + 4.0f)*ls,
-                NoteSize*ls, enabled ? UiDim : UiOff);
+        UiLabel(Entries[i].note, box.x + EntryPad*ls, box.y + (10.0f + LabelSize + 4.0f)*ls,
+                NoteSize*ls, UiDim);
     }
 
     UiLabelCentered("arrows or the mouse   enter to choose",

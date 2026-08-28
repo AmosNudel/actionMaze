@@ -52,6 +52,25 @@ public:
     // be shared. The shared copy is owned by `textures` and released by UnloadAll.
     //------------------------------------------------------------------------------
     Model &GetModel(const std::string &path, const std::string &sharedTexturePath = "");
+
+    //------------------------------------------------------------------------------
+    // The animation clips in a file, parsed once however many rigs want them.
+    //
+    // KayKit ships its clip library split across a handful of files that every
+    // character shares, and parsing a glTF is by far the most expensive thing this
+    // project does at load: six enemy archetypes times four clip files was
+    // twenty-four parses of four files, and about two thirds of the whole run
+    // load. Cached here it is four.
+    //
+    // What comes back is READ ONLY and shared. Clips have to be reordered into
+    // each rig's own bone order before they can be played (see RemapPosesToModel),
+    // and that reorder differs per character - so a caller takes a private copy and
+    // permutes that. Copying pose arrays is a memcpy; parsing the file again is
+    // not, and that is the whole saving.
+    //
+    // Returns null and leaves `count` at zero when the file holds no animations.
+    //------------------------------------------------------------------------------
+    const ModelAnimation *GetAnimations(const std::string &path, int *count);
     Sound &GetSound(const std::string &path);
     // Either path may be empty to use raylib's default vertex/fragment stage
     Shader &GetShader(const std::string &vsPath, const std::string &fsPath);
@@ -62,8 +81,16 @@ public:
     static std::string Resolve(const std::string &path);
 
 private:
+    // One file's clips, as parsed. Owned here and freed by UnloadAll.
+    struct Animations
+    {
+        ModelAnimation *anims = nullptr;
+        int count = 0;
+    };
+
     std::unordered_map<std::string, Texture2D> textures;
     std::unordered_map<std::string, Model> models;
+    std::unordered_map<std::string, Animations> animations;
     std::unordered_map<std::string, Sound> sounds;
     std::unordered_map<std::string, Shader> shaders;
 };

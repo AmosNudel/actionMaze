@@ -5,67 +5,75 @@ namespace
     //------------------------------------------------------------------------------
     // The table, in Magic order.
     //
-    // The columns are set against each other rather than against absolute numbers:
-    // the eight are meant to be visibly different in the air and on impact, and the
-    // damage spread pays for the reach and the size.
+    // Every school has ONE thing it is for, and the columns are set to make that
+    // thing legible rather than to hit an absolute number:
     //
-    //   Flame   the ordinary one - middling everything, a wide burn where it lands
-    //   Spark   fast and small. Least damage per hit, arrives before you can move
-    //   Toxin   slow, fat, green. The mote is the biggest and the easiest to dodge
-    //   Blast   slow and heavy. The widest impact on the table
-    //   Splash  quick and cold, a small tight burst
-    //   Flash   the snap - fastest, smallest impact, hits once and is gone
-    //   Nova    a slow heavy flare, the wide flash
-    //   Rend    close and physical, drawn as matter rather than light
+    //   Flame   spreads. The burst is capped at three bodies, so it CATCHES on
+    //           what is next to the target rather than filling a circle, and
+    //           every burning body keeps the fire drawn on it while it ticks
+    //   Spark   the one single target school - no burst at all, and every hit of
+    //           it is a critical strike. What you cycle to for one hard problem
+    //   Toxin   the long one. Ten seconds of poison on everyone it caught, which
+    //           nothing else on the table comes near
+    //   Blast   the kill button. Widest burst, hardest hit, and it costs the most
+    //           of any school to cast because of both
+    //   Splash  strips defences. Everyone it caught takes MORE from everything -
+    //           the sword, the burn, the next cast - for six seconds
+    //   Flash   blinds. Everyone it caught loses the player entirely
+    //   Nova    moves the room. A hard shove out of the impact, and it interrupts
+    //           whatever the shove caught them doing
+    //   Rend    feeds the caster. Every body it damages pays a share of that back
+    //           as health, so a rend into a pack is a heal
     //
     // Damage is a multiple of SPELL POWER rather than a figure - see the note on
-    // MagicDef::damageMult. The two ends of the band are the two ends of the speed
-    // range and the pairing is not a coincidence: SPARK arrives before the player
-    // can move and is worth 0.8, BLAST can be walked out of and is worth 1.7. What
-    // a school costs to land is what it is paid for landing.
+    // MagicDef::damageMult - and the spread of it now follows what a school DOES
+    // rather than how fast it flies. BLAST and REND are the two bought to kill and
+    // sit at the top; the four utility schools sit near 1.0 because a blind or a
+    // sunder that also hit hardest would make the effect a bonus rather than the
+    // reason; SPARK sits at the bottom because it crits every time and a
+    // guaranteed critical on top of a high multiplier is the same number twice.
+    //
+    // What a school costs to cast comes straight off that column (see
+    // Spellbook::CostOf), which is the balance: BLAST is the most expensive thing
+    // in the book and SPARK is nearly the cheapest, so a pool holds about half as
+    // many of the first as the second.
     //
     // Speed is the readability dial and not just a stat: below about 18 units a
     // second the mote is a thing you watch cross the room, and above about 40 it is
     // a line that was already there. Both are legitimate - Toxin is meant to be
-    // watched and Flash is meant to be instant - and everything in between reads as
+    // watched and Spark is meant to be instant - and everything in between reads as
     // one or the other depending which end it is nearer.
     //
-    // The impact sizes used to be set against an enemy standing about two units
-    // tall - 1.6 a hit ON one, 3.4 a blast that covered it and whatever it was
-    // next to - but every school has a real AoE burst now (see the note on
-    // MagicDef::aoeRadius) and the picture has to be honest about how far that
-    // actually reaches, so both columns were raised together and by a lot: an
-    // impact that only ever covered the one body it hit read as no different
-    // from before, whatever the burst was quietly doing to its neighbours.
-    //
-    // Set against each other on the same logic as every other column: NOVA
-    // stays the widest because "the one real area of effect" is still its whole
-    // identity, FLASH and SPARK stay the tightest because fast and small
-    // everywhere else means fast and small here too.
+    // impactSize and aoeRadius are kept equal on every row on purpose. The picture
+    // IS the area now: an impact drawn smaller than the burst is a spell that
+    // quietly hits things it never appeared to touch, and one drawn larger is a
+    // spell the player will swear missed. SPARK is the exception at both ends - it
+    // has no burst, so its impact is sized to the one body it hit.
     //
     // Elements and resistances were the plan here once - see the older note in
     // combat/Stats.h - and are not any more: an enemy never answered one
     // differently to another, so a resistance table would have changed nothing a
-    // player could feel. What each school does INSTEAD is its own effect, in
-    // `school` below and applied through Enemy::ApplyMagicEffect: SPARK always
-    // crits, FLAME burns and can jump once to a neighbour, TOXIN stacks into a
-    // panic, BLAST shoves, SPLASH chills, FLASH blinds, REND bleeds - and now all
-    // eight land that effect on everyone caught in the burst, not just the one
-    // body the mote actually hit.
+    // player could feel. What each school does INSTEAD is its own effect, applied
+    // through Enemy::ApplyMagicEffect, or - for the three that need something an
+    // enemy does not have - in ProjectileManager::Advance: NOVA's shove wants the
+    // impact point, REND's lifesteal wants the player, and SPARK's crit was
+    // already rolled at the cast.
     //------------------------------------------------------------------------------
     constexpr MagicDef Table[(int)Magic::Count] =
     {
-        // name      school           colour                        impact              tint    mote  impact speed mult  aoe
-        { "FLAME",  Magic::Flame,  { 255, 110,  40, 255 }, VfxKind::Flame,     WHITE,          0.13f, 4.5f, 26.0f, 1.10f, 4.5f },
-        { "SPARK",  Magic::Spark,  { 150, 170, 255, 255 }, VfxKind::Lightning, WHITE,          0.10f, 2.8f, 44.0f, 0.80f, 2.8f },
-        { "TOXIN",  Magic::Toxin,  { 130, 225,  95, 255 }, VfxKind::Poison,    WHITE,          0.17f, 4.0f, 17.0f, 0.90f, 4.0f },
-        { "BLAST",  Magic::Blast,  { 255, 145,  55, 255 }, VfxKind::Explosion, WHITE,          0.16f, 4.5f, 20.0f, 1.70f, 4.5f },
-        { "SPLASH", Magic::Splash, {  90, 205, 240, 255 }, VfxKind::Splash,    { 150, 220, 255, 255 }, 0.12f, 3.4f, 32.0f, 1.00f, 3.4f },
-        { "FLASH",  Magic::Flash,  { 255, 225, 140, 255 }, VfxKind::Muzzle,    WHITE,          0.10f, 2.8f, 50.0f, 1.20f, 2.8f },
-        { "NOVA",   Magic::Nova,   { 255, 195,  90, 255 }, VfxKind::MuzzleBig, WHITE,          0.15f, 5.0f, 22.0f, 1.40f, 5.0f },
+        // name       school          colour                     impact              tint                     mote  impact speed mult   aoe  cap
+        { "FLAME",  Magic::Flame,  { 255, 110,  40, 255 }, VfxKind::Flame,     WHITE,                  0.13f, 5.0f, 26.0f, 1.05f, 5.0f, 3 },
+        { "SPARK",  Magic::Spark,  { 150, 170, 255, 255 }, VfxKind::Lightning, WHITE,                  0.10f, 2.4f, 46.0f, 0.80f, 0.0f, 0 },
+        { "TOXIN",  Magic::Toxin,  { 130, 225,  95, 255 }, VfxKind::Poison,    WHITE,                  0.17f, 4.6f, 17.0f, 0.90f, 4.6f, 0 },
+        { "BLAST",  Magic::Blast,  { 255, 145,  55, 255 }, VfxKind::Explosion, WHITE,                  0.16f, 6.5f, 20.0f, 1.90f, 6.5f, 0 },
+        { "SPLASH", Magic::Splash, {  90, 205, 240, 255 }, VfxKind::Splash,    { 150, 220, 255, 255 }, 0.12f, 4.6f, 32.0f, 0.95f, 4.6f, 0 },
+        { "FLASH",  Magic::Flash,  { 255, 225, 140, 255 }, VfxKind::Muzzle,    WHITE,                  0.10f, 4.2f, 50.0f, 0.85f, 4.2f, 0 },
+        { "NOVA",   Magic::Nova,   { 255, 195,  90, 255 }, VfxKind::MuzzleBig, WHITE,                  0.15f, 5.8f, 22.0f, 1.10f, 5.8f, 0 },
         // The one drawn as matter. Its sheet is blood, which is already red, so the
-        // tint stays white and the mote carries the colour on its own.
-        { "REND",   Magic::Rend,   { 210,  55,  60, 255 }, VfxKind::Blood,     WHITE,          0.14f, 3.2f, 28.0f, 1.50f, 3.2f },
+        // tint stays white and the mote carries the colour on its own. The tightest
+        // burst of the seven - see the note on MagicDef::aoeRadius for why a
+        // lifesteal in particular cannot also have reach.
+        { "REND",   Magic::Rend,   { 210,  55,  60, 255 }, VfxKind::Blood,     WHITE,                  0.14f, 3.6f, 28.0f, 1.60f, 3.6f, 0 },
     };
 }
 

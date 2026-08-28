@@ -91,6 +91,33 @@ Shader &AssetManager::GetShader(const std::string &vsPath, const std::string &fs
     return shaders.emplace(key, shader).first->second;
 }
 
+//----------------------------------------------------------------------------------
+// A clip file's animations, parsed once - see the note on the declaration.
+//
+// Cached even when the file turns out to hold nothing, so a missing or animation
+// free file is parsed once and answered from the map every time after. A null that
+// had to be re-derived would put the slowest call in the project on the path that
+// gets nothing out of it.
+//----------------------------------------------------------------------------------
+const ModelAnimation *AssetManager::GetAnimations(const std::string &path, int *count)
+{
+    auto found = animations.find(path);
+
+    if (found == animations.end())
+    {
+        Animations loaded;
+        loaded.anims = LoadModelAnimations(Resolve(path).c_str(), &loaded.count);
+
+        if (loaded.anims == nullptr) loaded.count = 0;
+
+        found = animations.emplace(path, loaded).first;
+    }
+
+    if (count != nullptr) *count = found->second.count;
+
+    return found->second.anims;
+}
+
 void AssetManager::UnloadAll()
 {
     for (auto &entry : textures) UnloadTexture(entry.second);
@@ -98,8 +125,16 @@ void AssetManager::UnloadAll()
     for (auto &entry : sounds) UnloadSound(entry.second);
     for (auto &entry : shaders) UnloadShader(entry.second);
 
+    // The cached originals. Every rig that played these holds its own permuted
+    // copy and frees that itself - see AnimatedModel::Unload.
+    for (auto &entry : animations)
+    {
+        if (entry.second.anims != nullptr) UnloadModelAnimations(entry.second.anims, entry.second.count);
+    }
+
     textures.clear();
     models.clear();
     sounds.clear();
     shaders.clear();
+    animations.clear();
 }

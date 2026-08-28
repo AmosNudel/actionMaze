@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 namespace
@@ -16,6 +17,71 @@ namespace
 
     // Matches MAX_BONE_NUM in assets/shaders/skinning.vs
     constexpr int MaxShaderBones = 128;
+
+    //------------------------------------------------------------------------------
+    // A private, writable copy of a shared clip set.
+    //
+    // The cache in AssetManager hands out the file exactly as it was parsed, and
+    // RemapPosesToModel rewrites pose data in place into one rig's bone order - so
+    // every character that wants these clips needs its own copy to permute.
+    //
+    // Allocated with malloc and laid out exactly as raylib lays its own out (see
+    // UnloadModelAnimations in rmodels.c), deliberately: the copy is then freeable
+    // by raylib's own unloader, so AnimatedModel::Unload stays one call and there
+    // is no second ownership rule to remember for clips that came from the cache.
+    //
+    // Returns null if any allocation fails, having freed whatever it had.
+    //------------------------------------------------------------------------------
+    ModelAnimation *CopyAnimations(const ModelAnimation *source, int count)
+    {
+        if ((source == nullptr) || (count <= 0)) return nullptr;
+
+        ModelAnimation *out = (ModelAnimation *)calloc((size_t)count, sizeof(ModelAnimation));
+        if (out == nullptr) return nullptr;
+
+        for (int a = 0; a < count; a++)
+        {
+            const ModelAnimation &from = source[a];
+
+            memcpy(out[a].name, from.name, sizeof(out[a].name));
+            out[a].boneCount = from.boneCount;
+            out[a].keyframeCount = from.keyframeCount;
+
+            if (from.keyframeCount <= 0) continue;
+
+            out[a].keyframePoses =
+                (ModelAnimPose *)calloc((size_t)from.keyframeCount, sizeof(ModelAnimPose));
+
+            if (out[a].keyframePoses == nullptr)
+            {
+                // calloc zeroed everything placed so far, so the counts already
+                // written describe exactly what is there to free
+                out[a].keyframeCount = 0;
+                UnloadModelAnimations(out, count);
+
+                return nullptr;
+            }
+
+            for (int k = 0; k < from.keyframeCount; k++)
+            {
+                const size_t bytes = (size_t)from.boneCount*sizeof(Transform);
+
+                out[a].keyframePoses[k] = (Transform *)malloc(bytes);
+
+                if (out[a].keyframePoses[k] == nullptr)
+                {
+                    out[a].keyframeCount = k;
+                    UnloadModelAnimations(out, count);
+
+                    return nullptr;
+                }
+
+                memcpy(out[a].keyframePoses[k], from.keyframePoses[k], bytes);
+            }
+        }
+
+        return out;
+    }
 
     std::string Lowered(const std::string &text)
     {
@@ -176,21 +242,42 @@ bool AnimatedModel::Load(AssetManager &assets, const std::string &modelPath,
             continue;
         }
 
-        ClipFile file;
-        file.anims = LoadModelAnimations(AssetManager::Resolve(source).c_str(), &file.count);
+        //----------------------------------------------------------------------
+        // The file's clips, parsed once for the whole project and copied here.
+        //
+        // The copy is not a wasted step - the remap below REORDERS pose data into
+        // this rig's own bone order, and the KayKit characters disagree about
+        // that order, so the shared original has to stay as it was parsed for the
+        // next character to permute differently. What the cache saves is the
+        // PARSE, which is the expensive half by a wide margin: six archetypes over
+        // four clip files was twenty-four glTF parses of four files.
+        //----------------------------------------------------------------------
+        int sourceCount = 0;
+        const ModelAnimation *sourceAnims = assets.GetAnimations(source, &sourceCount);
 
-        if ((file.anims == nullptr) || (file.count <= 0))
+        if ((sourceAnims == nullptr) || (sourceCount <= 0))
         {
             TraceLog(LOG_WARNING, "ANIMMODEL: no animations in %s", source.c_str());
             continue;
         }
 
-        // Loaded only for its skeleton, to line the clips up with ours by name
-        Model clipRig = LoadModel(AssetManager::Resolve(source).c_str());
-        const bool usable = RemapPosesToModel(model, clipRig, file.anims, file.count);
-        UnloadModel(clipRig);
+        ClipFile file;
+        file.anims = CopyAnimations(sourceAnims, sourceCount);
+        file.count = sourceCount;
 
-        if (!usable)
+        if (file.anims == nullptr)
+        {
+            TraceLog(LOG_WARNING, "ANIMMODEL: out of memory copying %s", source.c_str());
+            continue;
+        }
+
+        // Read only for its skeleton, to line the clips up with ours by name. Off
+        // the shared cache rather than loaded and thrown away per character: it is
+        // the same four files every time, and this used to be twenty-four loads of
+        // a mesh nothing ever draws.
+        const Model &clipRig = assets.GetModel(source);
+
+        if (!RemapPosesToModel(model, clipRig, file.anims, file.count))
         {
             TraceLog(LOG_WARNING, "ANIMMODEL:   %s - bones do not line up with %s, skipped",
                      GetFileName(source.c_str()), GetFileName(modelPath.c_str()));

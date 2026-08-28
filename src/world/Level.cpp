@@ -153,32 +153,66 @@ void Level::Load(AssetManager &assets)
 // restarts. The seed is kept on the Map so a map worth having can be read back
 // and pinned into Config::LevelSeed.
 //----------------------------------------------------------------------------------
-void Level::Load(AssetManager &assets, unsigned int seed)
+//----------------------------------------------------------------------------------
+// Every model a dungeon is built and dressed out of, pulled into the AssetManager.
+//
+// Split out of Load because it is the expensive half and the WRONG half to be
+// paying per floor: this is about a second of glTF parsing on the first call and
+// nothing at all on every call after, where the rest of Load is a few milliseconds
+// of maze generation that genuinely has to happen again each time. Separating them
+// lets the loading screen run this as a step of its own with a bar attached, rather
+// than freezing on one call that does both - see Game::RunLoadStep.
+//
+// Load still calls it, so a floor built without going through the loading screen -
+// Descend, the regenerate key - is not a special case that has to remember to.
+// Every path here is cached by the AssetManager, so the second call is a map lookup
+// per piece.
+//
+// The props are warmed from the ROOM TABLE rather than from a list kept here. Which
+// furniture a floor actually needs depends on which kinds and states rolled, and
+// preloading only what this floor rolled would leave the next floor loading the
+// rest mid-descend - so all of it is taken, from the one place that knows what all
+// of it is.
+//----------------------------------------------------------------------------------
+int Level::ArtStepCount()
 {
-    // One deeper. Deliberately BEFORE the early work below, and deliberately not
-    // reset by it: every call to Load is another floor, so the first map built is
-    // depth 1 and the debug regenerate key is the way down.
-    ++depth;
+    // The stonework, one step per room kind, and the palettes that go by state
+    return 2 + Rooms::KindCount;
+}
 
-    // A regenerate comes straight back through here, so anything that accumulates
-    // has to be cleared first. The models themselves are the AssetManager's to
-    // keep - it caches by path, so a second level costs no reloading - but the
-    // lists holding them are ours, and so is the fallback box.
-    wallVariants.clear();
-    bannerProps.clear();
-    props.clear();
-    propCells.clear();
-    floorPlan.clear();
+void Level::LoadArt(AssetManager &assets)
+{
+    for (int i = 0; i < ArtStepCount(); i++) LoadArtStep(assets, i);
+}
 
-    if (wallBoxReady) UnloadModel(wallBox);
-    wallBoxReady = false;
+//----------------------------------------------------------------------------------
+// One slice of the art load - see the note on LoadArt for what the whole of it is
+// and why it is not part of building a floor.
+//
+// Sliced at all because it is over a second of glTF parsing on the first call, and
+// a second inside one frame is a frozen loading screen however good the bar on it
+// is. The slices are uneven - the stonework is thirty pieces and a small room kind
+// is three - and that is fine: the point is that no single one of them is long
+// enough to look like a hang.
+//
+// Cut by ROOM KIND rather than into equal counts because the room table is the
+// thing that actually knows what furniture exists, and a slice that owned "props 40
+// through 60" would have to be renumbered every time a row gained a chair.
+//----------------------------------------------------------------------------------
+void Level::LoadArtStep(AssetManager &assets, int step)
+{
+    // Warming the AssetManager, so what a piece resolves to is not this function's
+    // business - DressRooms asks again, and gets it from the cache
+    auto prop = [&](const char *path)
+    {
+        if (path != nullptr) Piece(assets, (std::string(path) + ".gltf").c_str());
+    };
 
-    map.Generate(seed);
-
-    spawn = map.SpawnPoint();
-    portal = map.PortalPoint();
-    floorHeight = 0.0f;
-
+    // The stonework: what the maze itself is built out of, and the only slice whose
+    // results are KEPT rather than just cached - the named members below are what
+    // Draw reaches for.
+    if (step == 0)
+    {
     // Shared by every piece: raylib holds a shader per material, so this has to be
     // set on each model as it loads rather than bound once around the draw
     lit = &assets.GetShader("shaders/lit.vs", "shaders/lit.fs");
@@ -285,6 +319,59 @@ void Level::Load(AssetManager &assets, unsigned int seed)
                                   "doors will not swing", doorFrame->meshCount);
         }
     }
+
+        return;
+    }
+
+    // One room kind's palette
+    if ((step >= 1) && (step <= Rooms::KindCount))
+    {
+        const RoomKindSpec &spec = Rooms::Kinds[step - 1];
+
+        prop(spec.anchor);
+
+        for (const char *path : spec.edge) prop(path);
+        for (const char *path : spec.scatter) prop(path);
+
+        return;
+    }
+
+    // The two palettes swapped in by STATE rather than named by a kind, and the
+    // floors that go with those states
+    for (const char *path : Rooms::CampsiteEdge) prop(path);
+    for (const char *path : Rooms::CampsiteScatter) prop(path);
+    for (const char *path : Rooms::RubbleProps) prop(path);
+
+    for (int i = 0; i < (int)ChamberState::Count; i++) prop(Rooms::FloorFor((ChamberState)i));
+}
+
+void Level::Load(AssetManager &assets, unsigned int seed)
+{
+    // One deeper. Deliberately BEFORE the early work below, and deliberately not
+    // reset by it: every call to Load is another floor, so the first map built is
+    // depth 1 and the debug regenerate key is the way down.
+    ++depth;
+
+    // A regenerate comes straight back through here, so anything that accumulates
+    // has to be cleared first. The models themselves are the AssetManager's to
+    // keep - it caches by path, so a second level costs no reloading - but the
+    // lists holding them are ours, and so is the fallback box.
+    wallVariants.clear();
+    bannerProps.clear();
+    props.clear();
+    propCells.clear();
+    floorPlan.clear();
+
+    if (wallBoxReady) UnloadModel(wallBox);
+    wallBoxReady = false;
+
+    map.Generate(seed);
+
+    spawn = map.SpawnPoint();
+    portal = map.PortalPoint();
+    floorHeight = 0.0f;
+
+    LoadArt(assets);
 
     BuildDoors();
 

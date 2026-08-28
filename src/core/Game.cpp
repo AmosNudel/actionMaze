@@ -60,7 +60,7 @@ void Game::Init()
 
     InitAudioDevice();
     SetTargetFPS(Config::TargetFps);
-    SetMasterVolume(masterVolume);
+    ApplyVolume();
 
     // Before anything that measures a string. Every layout in the game is laid out
     // against whatever UiFont() returns, and the default font is a narrower face -
@@ -86,22 +86,96 @@ void Game::Init()
 // placed on it) is deliberately not here: that runs every time a fresh run
 // starts, not just the first.
 //----------------------------------------------------------------------------------
-void Game::LoadRunAssets()
+//----------------------------------------------------------------------------------
+// The run load, as a list of steps rather than one blocking call.
+//
+// It used to be one function, and the loading screen was a lie: the fader reached
+// black, the whole 1.3 seconds of glTF parsing ran inside a single frame, and the
+// page the player was supposed to be looking at while it happened got its first
+// draw AFTER the work was already done. What that looks like from a chair is a
+// blank screen followed by a loading screen that flashes past - which is exactly
+// what it was.
+//
+// One step per frame instead. Each entry is drawn before it runs, so the label
+// under the bar names the thing being loaded RIGHT NOW rather than the thing that
+// just finished, and the bar has somewhere real to come from.
+//
+// The labels and the switch below are one list in two halves and have to stay in
+// step - same arrangement as PauseMenu's entry table against its Choice enum, and
+// the two sitting next to each other in this file is what keeps that honest.
+//----------------------------------------------------------------------------------
+namespace
 {
-    sky.Load(assets, Config::SkyCubemap);
+    //--------------------------------------------------------------------------
+    // The steps before the dungeon art, one label each, in the order they run.
+    // Index i here is case i in RunLoadStep below, and the two have to stay in
+    // step - same arrangement as PauseMenu's entry table against its Choice
+    // enum, and the two sitting next to each other is what keeps that honest.
+    //--------------------------------------------------------------------------
+    constexpr const char *RunLoadLabels[] =
+    {
+        "the sky",
+        "your hands",
+        "the armoury",
+        "the dead",             // See AssetManager::GetAnimations
+        "the interface",
+        "arrows and motes",
+        "fire and blood",
+        "the way down",
+        "what hunts you",
+        "the vendors",
+        "spoils",
+        "pickups",
+        "chests",
+        "the horizon",          // The town outside the walls - see world/Skyline.h
+    };
 
-    viewModel.Load(assets);
-    weaponPreview.Load(assets);
-    enemies.Load(assets);
-    hud.Load(assets);
-    projectiles.Load(assets);
-    vfx.Load(assets);
-    portal.Load(assets);
-    events.Load(assets);
-    vendors.Load(assets);
-    loot.Load(assets);
-    pickups.Load(assets);
-    treasure.Load(assets);
+    constexpr int RunLoadFixed = (int)(sizeof(RunLoadLabels)/sizeof(RunLoadLabels[0]));
+
+    //--------------------------------------------------------------------------
+    // Then the dungeon kit, which is far too long to be one step - see
+    // Level::LoadArtStep - and then the floor built out of it.
+    //
+    // The art range is sized by Level rather than written down here, so a room
+    // kind gained or lost changes the bar and nothing else.
+    //--------------------------------------------------------------------------
+    int RunLoadArtSteps() { return Level::ArtStepCount(); }
+
+    int RunLoadTotal() { return RunLoadFixed + RunLoadArtSteps() + 1; }
+}
+
+void Game::RunLoadStep(int index)
+{
+    switch (index)
+    {
+        case 0:  sky.Load(assets, Config::SkyCubemap); break;
+        case 1:  viewModel.Load(assets);     break;
+        case 2:  weaponPreview.Load(assets); break;
+        case 3:  enemies.Load(assets);       break;
+        case 4:  hud.Load(assets);           break;
+        case 5:  projectiles.Load(assets);   break;
+        case 6:  vfx.Load(assets);           break;
+        case 7:  portal.Load(assets);        break;
+        case 8:  events.Load(assets);        break;
+        case 9:  vendors.Load(assets);       break;
+        case 10: loot.Load(assets);          break;
+        case 11: pickups.Load(assets);       break;
+        case 12: treasure.Load(assets);      break;
+        case 13: skyline.Load(assets);       break;
+
+        default:
+            if (index < RunLoadFixed + RunLoadArtSteps())
+            {
+                level.LoadArtStep(assets, index - RunLoadFixed);
+                break;
+            }
+
+            // The last step, and the only one that runs on a second run too - see
+            // the note on `runAssetsLoaded`. Building the floor is per RUN; loading
+            // the art it is built out of is per LAUNCH.
+            StartNewRun();
+            break;
+    }
 }
 
 //----------------------------------------------------------------------------------
@@ -141,6 +215,11 @@ void Game::StartNewRun()
     ResetChaos(chaos, level.Depth());
     portal.Reset();
     portal.PlaceAt(level.PortalPoint());
+
+    // Off the map's own seed, so this floor's horizon is this floor's - see
+    // Skyline::Place. Placed on every floor for the same reason the props are.
+    skyline.Place(level);
+
     events.Place(level, level.Depth());
 
     // After the events, because the two share the pool of rooms and the map chose
@@ -482,9 +561,11 @@ Vector3 Game::AimDirectionFrom(Vector3 muzzle) const
 //----------------------------------------------------------------------------------
 // What finishing a floor means: one deeper, or the end of the run.
 //
-// Called from exactly the two places a floor can be finished - the portal's dwell
-// completing, and the pause menu's Descend shortcut - so a shortcut past the walk
-// cannot also be a shortcut past the ending on Config::VictoryDepth.
+// Called from the one place a floor can be finished - the portal's dwell
+// completing. It was two: the pause menu carried a DESCEND shortcut past the walk
+// to the portal, which is gone (see the entry table in PauseMenu.cpp for why).
+// Kept as its own function regardless, because the victory check on
+// Config::VictoryDepth belongs to "a floor was finished" and not to the portal.
 //----------------------------------------------------------------------------------
 void Game::AdvanceFloor()
 {
@@ -537,6 +618,10 @@ void Game::Descend()
 
     portal.Reset();
     portal.PlaceAt(level.PortalPoint());
+
+    // A new map is a new place, and the horizon has to say so
+    skyline.Place(level);
+
     loot.Clear();           // Last floor's uncollected gems belong to last floor
     pickups.Clear();        // Likewise its uncollected pickups
     treasure.Clear();       // And an unopened chest, if this floor even had one
@@ -588,8 +673,12 @@ bool Game::UpdateScreens()
     // It also backs OUT of the sheet rather than opening the menu on top of it,
     // because that is what every player will expect it to do and a menu stacked on a
     // menu is two Escapes to get back to the game.
+    //
+    // The settings overlay is skipped here entirely: it reads Escape itself, and one
+    // key that closed both it and the menu under it would take the player two layers
+    // out when they asked to go one.
     //------------------------------------------------------------------------------
-    if (IsKeyPressed(KEY_ESCAPE))
+    if (IsKeyPressed(KEY_ESCAPE) && !pauseOptions)
     {
         if (shop.IsOpen()) shop.Close();
         else if (sheet.IsOpen()) sheet.Close();
@@ -602,6 +691,11 @@ bool Game::UpdateScreens()
     {
         if (pause.IsOpen()) pause.Close();
         if (shop.IsOpen()) shop.Close();
+
+        // Goes with the menu it was opened over. A settings page left up over a
+        // closed pause menu would be a page with nothing underneath it and no way
+        // back to what opened it.
+        pauseOptions = false;
 
         sheet.Toggle();
     }
@@ -630,16 +724,25 @@ bool Game::UpdateScreens()
         else if (treasure.At(player.Position())) treasure.Open(player.Position(), arsenal);
     }
 
-    if (pause.IsOpen())
+    //------------------------------------------------------------------------------
+    // The pause menu, and the settings page it can put over itself.
+    //
+    // The options overlay is checked FIRST and swallows the frame when it is up -
+    // see the note on Game::pauseOptions. Without that, one Escape would close the
+    // settings and the menu underneath in the same frame, and every click meant for
+    // a settings row would land on whatever pause entry happened to be behind it.
+    //------------------------------------------------------------------------------
+    if (!UpdatePauseOptions() && pause.IsOpen())
     {
-        // Descend is offered here as a shortcut past the walk, and is refused until
-        // the floor is actually cleared - which is what keeps it a shortcut past
-        // the walk rather than a way round the floor
-        switch (pause.Update(chaos.cleared))
+        switch (pause.Update())
         {
             case PauseMenu::Choice::Resume:    pause.Close(); break;
             case PauseMenu::Choice::Character: pause.Close(); sheet.Toggle(); break;
-            case PauseMenu::Choice::Descend:   pause.Close(); AdvanceFloor(); break;
+
+
+            // Over the menu rather than instead of it - the menu is where Back
+            // comes back to, so it stays open underneath
+            case PauseMenu::Choice::Options:   pauseOptions = true; options.Show(); break;
 
             // The one place the game ends. Straight out - there is nothing to save
             // yet, and a confirmation on a menu entry that already says "to
@@ -734,6 +837,7 @@ void Game::EnterState(AppState next)
         case AppState::RunLoading:
             loadingElapsed = 0.0f;
             runLoadStage = RunLoadStage::Enter;
+            runLoadStep = 0;
             break;
 
         case AppState::MainMenu:
@@ -780,31 +884,106 @@ void Game::UpdateMainMenu(float delta)
     }
 }
 
-void Game::UpdateOptions(float delta)
+//----------------------------------------------------------------------------------
+// What raylib is actually told, from the two things the player set.
+//
+// Mute wins and the volume is left alone underneath it - see the note on
+// Game::muted. One function rather than the same two lines at each of the three
+// controls, because "muted, but the slider still moved" is exactly the state a
+// forgotten branch leaves behind.
+//----------------------------------------------------------------------------------
+void Game::ApplyVolume() const
 {
-    (void)delta;
+    SetMasterVolume(muted ? 0.0f : masterVolume);
+}
 
-    switch (options.Update())
+//----------------------------------------------------------------------------------
+// The settings themselves, shared by the front-end page and the paused one.
+//
+// Everything except Back, which is the ONLY thing the two callers answer
+// differently: one fades out to the main menu, the other just closes an overlay
+// over a run that never stopped. Returns whether Back was what happened, so the
+// caller decides its own way out rather than this having to know which page it is
+// serving.
+//----------------------------------------------------------------------------------
+bool Game::HandleOptionsChoice(OptionsScreen::Choice choice)
+{
+    switch (choice)
     {
-        case OptionsScreen::Choice::Back: RequestAppState(AppState::MainMenu); break;
+        case OptionsScreen::Choice::Back: return true;
 
         case OptionsScreen::Choice::ToggleFullscreen:
             ToggleBorderlessWindowed();
             fullscreenOn = !fullscreenOn;
             break;
 
+        // Toggled rather than being the volume going to zero and back - the volume
+        // is what the player chose and muting must not spend it
+        case OptionsScreen::Choice::ToggleMute:
+            muted = !muted;
+            ApplyVolume();
+            break;
+
         case OptionsScreen::Choice::VolumeDown:
             masterVolume = fmaxf(0.0f, masterVolume - 0.1f);
-            SetMasterVolume(masterVolume);
+            ApplyVolume();
             break;
 
         case OptionsScreen::Choice::VolumeUp:
             masterVolume = fminf(1.0f, masterVolume + 0.1f);
-            SetMasterVolume(masterVolume);
+            ApplyVolume();
             break;
 
         default: break;
     }
+
+    return false;
+}
+
+// What the page is showing, from the settings it does not own - see OptionsView.
+OptionsView Game::OptionsShown(const char *backLabel) const
+{
+    OptionsView view;
+
+    view.fullscreenOn = fullscreenOn;
+    view.muted = muted;
+    view.volume = masterVolume;
+    view.backLabel = backLabel;
+
+    return view;
+}
+
+void Game::UpdateOptions(float delta)
+{
+    (void)delta;
+
+    if (HandleOptionsChoice(options.Update())) RequestAppState(AppState::MainMenu);
+}
+
+//----------------------------------------------------------------------------------
+// The same page over a paused run - see the note on Game::pauseOptions.
+//
+// Back closes this and LEAVES THE MENU STANDING rather than resuming: the player
+// paused to do something, went to settings on the way, and dropping them back into
+// the dungeon would be the game deciding they were finished.
+//
+// Returns whether this page OWNED the frame, which is not the same question as
+// whether it is still up - and the difference was a real bug. The click that
+// closes this page closes it on the same frame it is read, so reporting "no
+// longer up" let the pause menu underneath read the very same click and fire
+// whatever entry happened to be under the cursor: BACK sits exactly where QUIT
+// does, so backing out of settings quit the game.
+//
+// One click is one control's, and the control that got it is the one that was on
+// top when it happened.
+//----------------------------------------------------------------------------------
+bool Game::UpdatePauseOptions()
+{
+    if (!pauseOptions) return false;
+
+    if (HandleOptionsChoice(options.Update())) pauseOptions = false;
+
+    return true;
 }
 
 void Game::UpdateCredits(float delta)
@@ -815,42 +994,88 @@ void Game::UpdateCredits(float delta)
 }
 
 //----------------------------------------------------------------------------------
-// The run loading screen, in two ticks rather than one.
+// The run loading screen, walked one step at a time.
 //
-// LoadRunAssets and StartNewRun are blocking calls on the main thread - raylib's
-// GL-bound loads are not safe to call off it - so the only way this screen is
-// ever actually SEEN before the engine blocks on them is to let one Update/Draw
-// cycle pass with nothing but the page itself drawn (Enter), and only do the
-// heavy work on the next one (Loading). Done just holds the result on screen for
-// its own minimum time, the same reason BootLoading does.
+// Every load here is GL-bound and so has to happen on this thread - there is no
+// worker to hand it to. What there IS is more than one frame: the work is a list
+// (see RunLoadStep) and taking one entry per Update leaves an ordinary Draw
+// between each pair, which is what turns a frozen screen into a moving bar.
+//
+// Enter waits for the fade-in, Loading walks the list, Done holds the full bar for
+// its own minimum time - the same reason BootLoading has one.
 //----------------------------------------------------------------------------------
 void Game::UpdateRunLoading(float delta)
 {
+    loadingElapsed += delta;
+
     switch (runLoadStage)
     {
+        //--------------------------------------------------------------------------
+        // Waiting for the page to actually be on screen.
+        //
+        // EnterState runs on the frame the fader is fully BLACK, so the loading
+        // screen spends the whole fade-in invisible underneath it. Starting work
+        // there would put the first and biggest step behind the black again, which
+        // is the bug this whole arrangement exists to fix - so nothing loads until
+        // the cut has finished and the player can see what they are waiting for.
+        //--------------------------------------------------------------------------
         case RunLoadStage::Enter:
-            runLoadStage = RunLoadStage::Loading;
+            if (fader.IsIdle()) runLoadStage = RunLoadStage::Loading;
             break;
 
+        //--------------------------------------------------------------------------
+        // One step a frame, so the page is drawn between every pair of them.
+        //
+        // Skipping the art on a second run is what `runAssetsLoaded` is for, and
+        // the LAST step is exempt: the art is per launch, the floor is per run.
+        //--------------------------------------------------------------------------
         case RunLoadStage::Loading:
-            if (!runAssetsLoaded)
+            if (runAssetsLoaded && (runLoadStep < RunLoadTotal() - 1)) runLoadStep = RunLoadTotal() - 1;
+
+            RunLoadStep(runLoadStep);
+
+            runLoadStep++;
+
+            if (runLoadStep >= RunLoadTotal())
             {
-                LoadRunAssets();
                 runAssetsLoaded = true;
+                runLoadStage = RunLoadStage::Done;
+                loadingElapsed = 0.0f;
             }
-
-            StartNewRun();
-
-            runLoadStage = RunLoadStage::Done;
-            loadingElapsed = 0.0f;
             break;
 
+        // A beat at a full bar, so the last step is something the player saw finish
+        // rather than the frame the screen vanished on
         case RunLoadStage::Done:
-            loadingElapsed += delta;
-
             if (loadingElapsed >= Config::RunLoadingMinTime) RequestAppState(AppState::InGame);
             break;
     }
+}
+
+//----------------------------------------------------------------------------------
+// How far through the run load we are, and what is happening right now.
+//
+// `runLoadStep` is the step ABOUT to run, which is why it doubles as the count of
+// those already done - and why the label is the honest answer to "what is it doing"
+// rather than to "what did it just finish".
+//----------------------------------------------------------------------------------
+float Game::RunLoadProgress() const
+{
+    return (float)runLoadStep/(float)RunLoadTotal();
+}
+
+const char *Game::RunLoadLabel() const
+{
+    if (runLoadStep < RunLoadFixed) return RunLoadLabels[runLoadStep];
+
+    // Every slice of the dungeon kit says the same thing. What the player wants
+    // from this line is which PART of the load is running, and "the stonework"
+    // answers that for the whole range - naming the room kind being furnished
+    // would be a line that changed six times a second and told them nothing.
+    if (runLoadStep < RunLoadFixed + RunLoadArtSteps()) return "the stonework";
+    if (runLoadStep < RunLoadTotal()) return "the floor itself";
+
+    return "ready";
 }
 
 //----------------------------------------------------------------------------------
@@ -974,7 +1199,7 @@ void Game::UpdateWorld(float delta)
 
     // The camps stop sending anyone once the pool is empty - there is nothing left
     // for a new body to be worth
-    enemies.Update(delta, level, player, projectiles, !chaos.quelled);
+    enemies.Update(delta, level, player, projectiles, vfx, !chaos.quelled);
     level.ResolveBody(player.body);     // Enemies can shove; walls still win
 
     // Left button swings the right hand, right button the left. While a gizmo is
@@ -1203,9 +1428,9 @@ void Game::UpdateWorld(float delta)
             // re-rolled every substep would crit eventually, always.
             //
             // SPARK never rolls at all - its signature effect (see combat/Magic.cpp)
-            // is that every hit crits, which is what pays for arriving before the
-            // player can move: SKILL is still what decides how HARD it crits, only
-            // whether it does is taken out of the player's hands.
+            // is that every hit crits, which is what pays for it being the one
+            // school with no burst at all: SKILL still decides how HARD it crits,
+            // only whether it does is taken out of the player's hands.
             const bool crit = ((styles[h] == AttackStyle::Cast) && (magic == Magic::Spark))
                             || RollWeaponCrit(fighting, stats[h].critBonus);
 
@@ -1381,7 +1606,7 @@ void Game::Draw()
         case AppState::Options:
             BeginDrawing();
                 ClearBackground(BLACK);
-                options.Draw(fullscreenOn, masterVolume);
+                options.Draw(OptionsShown("BACK TO MENU"));
                 fader.Draw();
             EndDrawing();
             break;
@@ -1397,7 +1622,8 @@ void Game::Draw()
         case AppState::RunLoading:
             BeginDrawing();
                 ClearBackground(BLACK);
-                loadingScreen.Draw("ENTERING THE DUNGEON", loadingElapsed);
+                loadingScreen.Draw("ENTERING THE DUNGEON", loadingElapsed,
+                                   RunLoadProgress(), RunLoadLabel());
                 fader.Draw();
             EndDrawing();
             break;
@@ -1426,6 +1652,10 @@ void Game::DrawInGame()
 
             // First, and writing no depth, so everything below simply covers it
             sky.Draw();
+
+            // After the sky, which writes no depth, and before the level - the town
+            // is ordinary solid geometry and the walls have to be able to hide it
+            skyline.Draw();
 
             level.Draw();
             enemies.Draw(camera.Get());
@@ -1486,7 +1716,12 @@ void Game::DrawInGame()
         // Over everything, because both are modal - see the notes in
         // CharacterSheet.h and PauseMenu.h. The sheet last: it is what the menu
         // opens, so it has to sit on top of the menu that opened it.
-        pause.Draw(chaos.cleared);
+        pause.Draw();
+
+        // Over the menu that opened it, for the reason the sheet is drawn over the
+        // menu too - see the note on Game::pauseOptions
+        if (pauseOptions) options.Draw(OptionsShown("BACK"));
+
         shop.Draw(player, arsenal, spells, traits, weaponPreview);
         sheet.Draw(player, arsenal, spells, traits, weaponPreview, viewModel);
 

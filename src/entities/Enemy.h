@@ -178,22 +178,48 @@ struct Enemy
     // What magic left behind - see Stats.h for why this replaced elements and
     // resistances, and Enemy::ApplyMagicEffect for where these are actually set.
     //
-    // FLAME's burn and REND's bleed share one mechanism (`dotTime` and its
-    // neighbours) because they are the same idea at two different settings; TOXIN
-    // is a separate counter because it stacks rather than ticking on its own clock.
-    // All four tick and decay in EnemyManager::Update alongside poise and stun, on
-    // the same rule those already follow: this is happening TO the body, not a
-    // thing it is doing, so nothing pauses it.
+    // FLAME's burn and TOXIN's poison share ONE mechanism (`dotTime` and its
+    // neighbours) because they are the same idea at two very different settings -
+    // four hot seconds against ten slow ones. A body can only be under one of them
+    // at a time, which is deliberate: two DOT clocks running on one skeleton is a
+    // number the player cannot read off the screen, and the fire and the poison
+    // would be drawn on top of each other besides.
+    //
+    // All of these tick and decay in EnemyManager::Update alongside poise and
+    // stun, on the same rule those already follow: this is happening TO the body,
+    // not a thing it is doing, so nothing pauses it.
     //------------------------------------------------------------------------------
     float dotTime = 0.0f;           // Counts down; at zero there is no DOT running
     float dotTickTimer = 0.0f;
     int   dotDamagePerTick = 0;
-    bool  dotSpreads = false;       // FLAME only - spent on the one jump it gets
 
-    int   poisonStacks = 0;         // TOXIN
-    float poisonTickTimer = 0.0f;
+    //------------------------------------------------------------------------------
+    // Which school lit it, and therefore what it looks like while it burns.
+    //
+    // The tick spawns this school's own impact sheet on the body (see
+    // EnemyManager::Update), which is what "the fire stays up on them" actually
+    // is: not a second effect system, just the sheet the cast already owns played
+    // again, small, every half second for as long as the DOT runs. Carrying the
+    // SCHOOL rather than a VfxKind means the picture follows the table - change
+    // FLAME's impact art in Magic.cpp and what a burning body looks like changes
+    // with it.
+    //
+    // Only meaningful while `dotTime` is above zero.
+    //------------------------------------------------------------------------------
+    Magic dotSource = Magic::Flame;
 
-    float slowTime = 0.0f;          // SPLASH - see Config::SplashSlowFactor
+    //------------------------------------------------------------------------------
+    // SPLASH. Defences down: while this runs every point of damage from every
+    // source is scaled up by Config::SplashSunderFactor and a raised guard stops
+    // reducing anything at all - see the top of Enemy.cpp and TakeDamageFrom.
+    //
+    // It is a multiplier on what LANDS rather than a subtraction from armour
+    // because there is no armour number on an enemy to subtract from; health and
+    // the block scale are the whole of an enemy's defence, and this is the one
+    // debuff that touches both.
+    //------------------------------------------------------------------------------
+    float sunderTime = 0.0f;
+
     float blindTime = 0.0f;         // FLASH - holds `detection` at zero while it runs
     float fleeTime = 0.0f;          // TOXIN's panic - see EnemyManager's flee branch
 
@@ -495,10 +521,13 @@ struct Enemy
     // What a school of magic does to whatever it just hit, over and above its
     // damage - see the table in combat/Magic.cpp.
     //
-    // Not every school is here: SPARK's guaranteed crit is decided at the cast, and
-    // BLAST's shove and NOVA's area both need the caster's own line of travel or the
-    // rest of the enemy list, neither of which an enemy has - see
-    // ProjectileManager::Advance for those two.
+    // Called for the body the mote hit AND for every body its burst caught, so
+    // everything it sets happens to a whole pack at once for all but SPARK.
+    //
+    // Not every school is here. SPARK's guaranteed crit was rolled at the cast;
+    // NOVA's shove wants the impact point and REND's lifesteal wants the player,
+    // neither of which an enemy has - see ProjectileManager::Advance for all three.
+    // BLAST is absent for a different reason: it simply has no rider.
     //------------------------------------------------------------------------------
     void ApplyMagicEffect(Magic magic);
 

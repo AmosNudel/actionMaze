@@ -32,19 +32,17 @@ class PauseMenu
 public:
     // What the player picked this frame, or None. Consumed by reading: Update
     // returns it once and the menu goes back to None on the next frame.
-    enum class Choice { None, Resume, Character, Descend, Quit };
+    enum class Choice { None, Resume, Character, Options, Quit };
 
     void Toggle();
     bool IsOpen() const { return open; }
     void Close() { open = false; }
 
-    // `canDescend` greys the Descend entry out when the floor is not cleared. Shown
-    // rather than hidden, because an entry that appears and disappears is one the
-    // player has to notice twice - once to learn it exists and again to work out
-    // what makes it come back.
-    Choice Update(bool canDescend);
+    // Every entry is always live now - see the note on the table in PauseMenu.cpp
+    // for what went and why - so there is nothing to gate on and nothing to grey.
+    Choice Update();
 
-    void Draw(bool canDescend) const;
+    void Draw() const;
 
 private:
     //------------------------------------------------------------------------------
@@ -63,9 +61,6 @@ private:
     };
 
     static Layout Measure();
-
-    // Whether `index` can be chosen right now
-    static bool EntryEnabled(int index, bool canDescend);
 
     bool open = false;
 

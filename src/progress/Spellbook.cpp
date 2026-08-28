@@ -97,10 +97,12 @@ void Spellbook::RaiseEmpower(Magic magic)
 // What a school costs, from what it is worth.
 //
 // Off the damage multiplier, which is the one number in the magic table that says how
-// hard a school hits relative to the others. The band is narrow by design (0.8 to 1.7
+// hard a school hits relative to the others. The band is narrow by design (0.8 to 1.9
 // - see the note in Magic.h), so the prices come out close together, and that is the
-// honest answer: the schools are meant to differ in SPEED and shape rather than in
-// power, and a price spread that implied otherwise would be a lie about the table.
+// honest answer: most of the difference between two schools is their EFFECT, and an
+// effect is not something a price can be read off. What the spread does say is true
+// as far as it goes - BLAST is the dearest thing in the book and SPARK is nearly the
+// cheapest, which is the gap between "kills a pack" and "kills one thing".
 //
 // Gems are rare, so these are small numbers. A school is a few elite kills, not a
 // floor's worth of them.
@@ -145,8 +147,10 @@ float Spellbook::SizeMult(Magic magic) const
 //
 // Off the school's own damage multiplier again, so the heavy end of the table is the
 // expensive end to cast as well as to buy - which is what keeps SPARK worth having
-// after the player owns BLAST. A pool of twenty holds about four blasts or seven
-// sparks, and the difference between those two numbers is the decision.
+// after the player owns BLAST. A pool of twenty holds about three blasts or eight
+// sparks, and the difference between those two numbers is the decision. It is also
+// what keeps the four utility schools castable: a blind or a sunder that cost what
+// the kill button costs would never be worth the mana it took to set one up.
 //
 // Empowering does NOT raise the cost. It is bought with a different currency and it
 // is the mystic's whole second half; a level that made the school more expensive to

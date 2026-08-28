@@ -41,9 +41,10 @@
 // porting it, not a pass that has not gotten there yet. An enemy never answered one
 // element differently to another, so a resistance table would have changed nothing a
 // player could feel; the eight schools get their difference some other way instead,
-// one signature effect per school - a burn, a guaranteed crit, a panic, a shove, a
-// chill, a blind, a real area of effect, a bleed - applied through
-// Enemy::ApplyMagicEffect and catalogued in combat/Magic.cpp. ResolveDamage below
+// one signature effect per school - a spreading burn, a guaranteed crit, a long
+// poison, raw damage, stripped defences, a blind, a shove, a lifesteal - catalogued
+// in combat/Magic.cpp and applied through Enemy::ApplyMagicEffect or, for the three
+// that need what an enemy has no way to know, ProjectileManager::Advance. ResolveDamage below
 // stays the one funnel every point of damage goes through either way.
 //----------------------------------------------------------------------------------
 // StatBlock itself is in combat/StatBlock.h - see the note there for why the type

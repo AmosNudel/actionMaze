@@ -16,11 +16,23 @@ namespace
     // already means "walk into this" in four other places, and the colour is the only
     // thing saying which of them this one is.
     //------------------------------------------------------------------------------
+    //--------------------------------------------------------------------------
+    // Who each one IS, as art. The pairing is not arbitrary - a vendor should look
+    // like the thing they sell, so the player can tell a mystic from a captain
+    // across a room before either name is legible:
+    //
+    //   MERCHANT   the rogue    - the one who deals in what he found
+    //   MYSTIC     the mage     - the one who deals in schools
+    //   CAPTAIN    the knight   - the one who deals in contracts
+    //--------------------------------------------------------------------------
     constexpr NpcDef Table[(int)NpcKind::Count] =
     {
-        { "MERCHANT", "arms, and the forge",     Currency::Coins,     { 245, 215, 120, 255 } },
-        { "MYSTIC",   "schools, and the deepening of them", Currency::Gems, { 190, 130, 255, 255 } },
-        { "CAPTAIN",  "traits, and a free respec", Currency::Contracts, { 235, 120, 110, 255 } },
+        { "MERCHANT", "arms, and the forge",     Currency::Coins,     { 245, 215, 120, 255 },
+          "models/npcs/character_rogue.gltf" },
+        { "MYSTIC",   "schools, and the deepening of them", Currency::Gems, { 190, 130, 255, 255 },
+          "models/npcs/character_mage.gltf" },
+        { "CAPTAIN",  "traits, and a free respec", Currency::Contracts, { 235, 120, 110, 255 },
+          "models/npcs/character_knight.gltf" },
     };
 
     // The room table writes vendor lists as plain ints so that RoomKind.h can keep its

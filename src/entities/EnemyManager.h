@@ -15,6 +15,7 @@ class Level;
 class Player;
 class LootManager;
 class ProjectileManager;
+class VfxManager;
 
 //----------------------------------------------------------------------------------
 // Every enemy in the level, and the thinking they do.
@@ -65,8 +66,14 @@ public:
     // Standing bodies are left standing. Wiping them would be tidier and reads
     // badly from inside a fight: an enemy that vanishes mid-swing is the game
     // taking a kill away, and a garrison that is already out is finite anyway.
+    //
+    // `vfx` is here for one reason: a DOT ticking on a body plays its school's own
+    // impact sheet on that body every tick, which is what keeps the fire drawn on
+    // everything FLAME caught for as long as it is burning - see Enemy::dotSource.
+    // Passed in rather than held for the same reason ProjectileManager::Update
+    // takes it: the effect pool is shared with everything else that flashes.
     void Update(float delta, Level &level, Player &player, ProjectileManager &projectiles,
-                bool refill);
+                VfxManager &vfx, bool refill);
     //------------------------------------------------------------------------------
     // One body, placed where an event wants it rather than where a camp does.
     //
@@ -269,12 +276,6 @@ private:
     // One raider, one frame - see the note on the definition. Nothing in the
     // ordinary think applies to it, so it does not run any of it.
     void UpdateRaider(Enemy &enemy, float delta, Level &level);
-
-    // FLAME's one jump: hands `from`'s burn to the nearest other living enemy
-    // within Config::FlameSpreadRadius that is not already burning, or does
-    // nothing if there is none. Called once, the moment `from`'s own burn expires
-    // - see the note on the call site.
-    void SpreadBurnFrom(Enemy &from);
 
     //------------------------------------------------------------------------------
     // Would channelling be worth it right now?

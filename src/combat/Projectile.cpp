@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -28,6 +30,46 @@ namespace
     // living here as the one true answer.
     constexpr Vector3 ArrowAxis = { 0.0f, -1.0f, 0.0f };
 
+    //------------------------------------------------------------------------------
+    // REND's lifesteal, paid to the caster for one body the cast damaged.
+    //
+    // Off the shot's own damage figure rather than off what actually landed,
+    // because what landed is not knowable from here - a guard reduced it, a sunder
+    // raised it, an overkill wasted most of it - and a heal that quietly paid less
+    // against an armoured target would be a rule the player cannot see. What the
+    // spell was worth is what it pays.
+    //
+    // Floored at one point: a rend that connected and healed nothing would read as
+    // the lifesteal being broken rather than as the damage being small.
+    //------------------------------------------------------------------------------
+    void Restore(Player &player, int damage)
+    {
+        if (damage <= 0) return;
+
+        int back = (int)(damage*Config::RendLifestealFraction + 0.5f);
+        if (back < 1) back = 1;
+
+        // Capped at the pool by Heal itself - see the note on Player::Heal
+        player.Heal(back);
+    }
+
+    //------------------------------------------------------------------------------
+    // NOVA's shove, and the interrupt that comes with it.
+    //
+    // The three flags are the point as much as the push is: a body carried across
+    // the room with its swing still queued lands and immediately hits the player
+    // from where it was standing before, which reads as the knockback not having
+    // worked. Same clearing a hammer's stun already does to the player's own
+    // fights.
+    //------------------------------------------------------------------------------
+    void Throw(Enemy &enemy, Vector3 direction)
+    {
+        enemy.Shove(direction, Config::NovaKnockbackSpeed);
+
+        enemy.meleePending = false;
+        enemy.shotPending = false;
+        enemy.channelTime = 0.0f;
+    }
 }
 
 void ProjectileManager::Load(AssetManager &assets)
@@ -236,11 +278,13 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
             // What the school does, over and above the damage just applied - to
             // the body the mote actually hit, and then to the burst around it.
             //
-            // BLAST's shove wants the bolt's own line of travel for the direct
-            // hit and is handled here rather than inside Enemy::ApplyMagicEffect,
-            // which does not have it; every other school's own effect (burn,
-            // stacks, slow, blind, bleed, SPARK's crit already rolled) is applied
-            // through that function alone.
+            // Three schools are resolved HERE rather than inside
+            // Enemy::ApplyMagicEffect, because all three need something an enemy
+            // does not have: NOVA wants the impact point to shove away from,
+            // REND wants the player to pay its lifesteal to, and SPARK's crit
+            // was already rolled at the cast. Every other school's own effect
+            // (the two DOTs, the sunder, the blind) goes through that function
+            // alone.
             //----------------------------------------------------------------------
             if (mote)
             {
@@ -249,55 +293,80 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
 
                 enemy.ApplyMagicEffect(school);
 
-                if (school == Magic::Blast)
-                {
-                    // Along the bolt's own line of travel, so the shove reads as
-                    // the impact carrying the target rather than as a push from
-                    // nowhere. Interrupts whatever the blow caught it doing, the
-                    // same way a hammer's stun already does to the player's own
-                    // fights - a shove that left a swing or a channel running
-                    // through it would not read as a knockback at all.
-                    enemy.Shove(Vector3Normalize(shot.velocity), Config::BlastKnockbackSpeed);
+                // REND, on the body it actually hit. Paid per body, so the burst
+                // below pays again for each one it catches - see the note on
+                // Config::RendLifestealFraction.
+                if (school == Magic::Rend) Restore(player, shot.damage);
 
-                    enemy.meleePending = false;
-                    enemy.shotPending = false;
-                    enemy.channelTime = 0.0f;
-                }
+                if (school == Magic::Nova) Throw(enemy, shot.velocity);
 
                 //------------------------------------------------------------------
                 // The burst: every OTHER living body within this school's own
                 // aoeRadius (see the note on MagicDef::aoeRadius) takes the same
-                // blow AND the same effect `enemy` above just did. This is what
-                // turns every school into a real area of effect rather than a
-                // single target with a wide picture drawn round it - NOVA's own
-                // trick, now every school's.
+                // blow AND the same effect `enemy` above just did.
+                //
+                // SPARK has an aoeRadius of zero and skips the whole loop - it is
+                // the one school on the table that answers a single body, and the
+                // early out is what makes that true rather than a radius small
+                // enough to usually miss.
+                //
+                // FLAME caps how many it may take (MagicDef::aoeMaxTargets), which
+                // is why this is two passes rather than one: the cap has to fall
+                // on the NEAREST bodies, and the enemy vector is in spawn order.
+                // Everything else has a cap of zero and takes the lot.
                 //------------------------------------------------------------------
-                for (Enemy &other : enemies)
+                if (def.aoeRadius > 0.0f)
                 {
-                    if (&other == &enemy) continue;
-                    if (!other.IsAlive()) continue;
+                    // Squared distance and index, so the sort never touches a body
+                    const int count = (int)enemies.size();
 
-                    const float dx = other.body.position.x - contact.x;
-                    const float dz = other.body.position.z - contact.z;
+                    std::vector<std::pair<float, int>> caught;
 
-                    if ((dx*dx + dz*dz) > def.aoeRadius*def.aoeRadius) continue;
-
-                    other.killedBySpell = true;
-                    other.TakeDamageFrom(shot.damage, contact, shot.poiseScale);
-                    other.ApplyMagicEffect(school);
-
-                    if (school == Magic::Blast)
+                    for (int i = 0; i < count; ++i)
                     {
+                        Enemy &other = enemies[(size_t)i];
+
+                        if (&other == &enemy) continue;
+                        if (!other.IsAlive()) continue;
+
+                        const float dx = other.body.position.x - contact.x;
+                        const float dz = other.body.position.z - contact.z;
+                        const float away = dx*dx + dz*dz;
+
+                        if (away > def.aoeRadius*def.aoeRadius) continue;
+
+                        caught.push_back({ away, i });
+                    }
+
+                    if ((def.aoeMaxTargets > 0) && ((int)caught.size() > def.aoeMaxTargets))
+                    {
+                        // Partial rather than a full sort: the order of the three
+                        // nearest against each other is not something the burst
+                        // ever asks, only which three they are
+                        std::nth_element(caught.begin(), caught.begin() + def.aoeMaxTargets,
+                                         caught.end());
+
+                        caught.resize((size_t)def.aoeMaxTargets);
+                    }
+
+                    for (const std::pair<float, int> &hit : caught)
+                    {
+                        Enemy &other = enemies[(size_t)hit.second];
+
+                        other.killedBySpell = true;
+                        other.TakeDamageFrom(shot.damage, contact, shot.poiseScale);
+                        other.ApplyMagicEffect(school);
+
+                        if (school == Magic::Rend) Restore(player, shot.damage);
+
                         // Radially outward from the impact rather than along the
                         // bolt's own line - these bodies were never on that line,
-                        // and an explosion pushes everyone away from where it
-                        // went off rather than all in one direction.
-                        other.Shove(Vector3Subtract(other.body.position, contact),
-                                   Config::BlastKnockbackSpeed);
-
-                        other.meleePending = false;
-                        other.shotPending = false;
-                        other.channelTime = 0.0f;
+                        // and a nova pushes everyone away from where it went off
+                        // rather than all in one direction.
+                        if (school == Magic::Nova)
+                        {
+                            Throw(other, Vector3Subtract(other.body.position, contact));
+                        }
                     }
                 }
             }

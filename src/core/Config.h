@@ -701,52 +701,120 @@ namespace Config
     // first-guess numbers, sized to read clearly in a fight rather than measured
     // against a full balance pass; expect these to move once they have been played.
     //
-    // FLAME and REND share one tick rate rather than each carrying their own,
+    // Every school but SPARK lands on an area (see MagicDef::aoeRadius), so what
+    // is written below is what happens to EVERY body the burst caught, not to one
+    // target. That is the frame to read these numbers in: a duration that looks
+    // short against a single enemy is a whole pack under it at once.
+    //
+    // FLAME and TOXIN share one tick rate rather than each carrying their own,
     // because the two are the same MECHANISM (a DOT applied through
-    // Enemy::dotTime) wearing different numbers - a burn that ticks on a different
-    // clock to a bleed would be two systems for the one idea.
+    // Enemy::dotTime) wearing different numbers - a burn that ticked on a
+    // different clock to a poison would be two systems for the one idea. What
+    // separates them is length: FLAME is the short hot one that spreads, TOXIN is
+    // the long slow one that does not.
     //--------------------------------------------------------------------------
-    constexpr float MagicDotTickInterval   = 0.5f;   // Seconds between ticks, either DOT
+    constexpr float MagicDotTickInterval = 0.5f;   // Seconds between ticks, either DOT
 
-    // FLAME: a wide, patient burn - the longest DOT on the table, and the only one
-    // that jumps. The radius is deliberately short: a chain that reached across a
-    // whole room would make every pack fight the same fight regardless of formation.
+    // What the tick's own effect is drawn at, as a fraction of the school's
+    // impactSize - see the call site in EnemyManager::Update. Small on purpose:
+    // this plays twice a second on every body the burst caught, and at anything
+    // near full size a burning pack is a screen of orange with a fight somewhere
+    // behind it.
+    constexpr float MagicDotEffectScale = 0.35f;
+
+    // FLAME: a burn that catches on the neighbours. The spread is the burst itself
+    // capped at three bodies (see MagicDef::aoeMaxTargets) rather than a chain that
+    // hops later - a fire the player can SEE take three at once reads as spreading,
+    // where one that jumps four seconds after the cast reads as nothing at all.
     constexpr float FlameBurnDuration      = 4.0f;
     constexpr int   FlameBurnDamagePerTick = 3;
-    constexpr float FlameSpreadRadius      = 3.0f;
 
-    // REND: the same mechanism as FLAME, short and sharp instead of wide and patient
-    // - a blade wound closes faster than a fire burns out, and hurts more while it
-    // is open.
-    constexpr float RendBleedDuration      = 2.0f;
-    constexpr int   RendBleedDamagePerTick = 5;
+    // TOXIN: the long one. Nothing else on the table is still ticking this far
+    // after the cast, and that IS the school - it is bought to put a whole room on
+    // a clock rather than to kill what is in front of you.
+    constexpr float ToxinDotDuration      = 10.0f;
+    constexpr int   ToxinDamagePerTick    = 2;
 
-    // TOXIN: stacks rather than ticking on its own clock, so repeated hits are what
-    // grows it. At the cap the target panics rather than piling higher forever - a
-    // poison with no ceiling would need no cap AND no flee, which is a different
-    // spell.
-    constexpr int   ToxinMaxStacks    = 5;
-    constexpr int   ToxinDamagePerStack = 2;
-    constexpr float ToxinTickInterval = 1.0f;
+    // TOXIN's panic, kept from the old stacking version: a second dose on a body
+    // already under the first is what breaks it. Spending the poison on a flee
+    // would end the DOT the school exists for, so the burn keeps running and the
+    // body runs with it.
     constexpr float ToxinFleeDuration = 3.0f;
 
-    // BLAST: a hard shove along the bolt's own line of travel, applied where
-    // Enemy::Shove already lands a hammer's stagger - see Projectile.cpp.
-    constexpr float BlastKnockbackSpeed = 9.0f;
+    // NOVA: a hard shove out of the blast, applied where Enemy::Shove already
+    // lands a hammer's stagger - see Projectile.cpp. NOVA rather than BLAST now:
+    // BLAST is the raw damage school and NOVA is the one that MOVES a room, which
+    // is the only way two big AoEs are worth owning separately.
+    constexpr float NovaKnockbackSpeed = 11.0f;
 
-    // SPLASH: a plain multiplier on the move input, applied at the one place every
-    // movement branch of the AI already funnels through - see EnemyManager.cpp.
-    constexpr float SplashSlowFactor   = 0.5f;
-    constexpr float SplashSlowDuration = 3.0f;
+    // SPLASH: defences down. A plain multiplier on every point of damage the body
+    // takes from any source while it runs - see the top of Enemy.cpp - and a guard
+    // that stops reducing anything at all, because "lowers defences" that a raised
+    // shield could shrug off would not be a debuff worth a cast.
+    constexpr float SplashSunderFactor   = 1.45f;
+    constexpr float SplashSunderDuration = 6.0f;
 
     // FLASH: drains detection to zero and holds it there rather than damaging
     // anything - the one school that is entirely an interrupt.
-    constexpr float FlashBlindDuration = 2.0f;
+    constexpr float FlashBlindDuration = 4.0f;
 
-    // NOVA no longer has a Config constant of its own for this - every school's
-    // burst radius lives on its row of the table in Magic.cpp now (see
-    // MagicDef::aoeRadius), the same place every other per-school figure
-    // (damage, speed, impact size) already lived.
+    // REND: the caster's share of what it dealt, as health. Paid per BODY the cast
+    // damaged, so a rend into a pack is what actually heals - which is what makes
+    // it the school you cast when you are losing rather than when you are winning.
+    //
+    // Well under half, and deliberately: at a fraction where a full pack refills
+    // the bar, no other school is ever the right cast and the mana pool stops
+    // being the thing that rations magic.
+    constexpr float RendLifestealFraction = 0.30f;
+
+    //--------------------------------------------------------------------------
+    // The town outside the maze - see world/Skyline.h
+    //--------------------------------------------------------------------------
+    // How far past the map's own edge the first row of buildings stands, and how
+    // far apart the rows are after that. The gap is deliberately wider than a
+    // player can see across at floor level: the nearest row has to clear the outer
+    // wall without leaning over it, or the illusion turns into a building parked
+    // in the corridor.
+    constexpr float SkylineNearGap  = 16.0f;
+    constexpr float SkylineRowGap   = 46.0f;
+    constexpr int   SkylineRows     = 3;
+
+    // How many buildings each row puts along one side of the map. Spaced evenly and
+    // then jittered by up to half a slot, so the band reads as a town rather than
+    // as a fence.
+    constexpr int   SkylinePerRow   = 9;
+    constexpr float SkylineJitter   = 0.45f;
+
+    //--------------------------------------------------------------------------
+    // What a row is scaled by, near row first.
+    //
+    // Growing outward, and by a lot. This is the whole trick: a thing twice as far
+    // away has to be more than twice as big to look bigger, so a row that only kept
+    // pace with its distance would flatten the skyline into one height. Each row
+    // out-scales its own distance instead, which is what makes the town read as
+    // climbing away from the maze rather than as a wall of identical roofs.
+    //
+    // The near row is the tightest number here: at 16 units out, anything much over
+    // 8 leans into the airspace above the maze itself.
+    //--------------------------------------------------------------------------
+    constexpr float SkylineRowScale[SkylineRows] = { 7.0f, 13.0f, 19.0f };
+
+    // Either side of a row's own scale, rolled per building - so a row is a range
+    // of sizes rather than one size repeated
+    constexpr float SkylineScaleVary = 0.28f;
+
+    // The castle, which is placed once as a landmark rather than rolled with the
+    // rest. Bigger than anything in the last row and set further out again, because
+    // the one thing on the horizon that is meant to be recognised from anywhere has
+    // to be the thing that is visible from anywhere.
+    constexpr float SkylineCastleScale = 30.0f;
+    constexpr float SkylineCastleOut   = 92.0f;
+
+    // Every building is dropped by this much so no base is ever level with the
+    // floor the player is standing on. They are only seen from the wall line
+    // upward - see the note in Skyline.h - and a base that happened to line up
+    // exactly with the floor would be the one that gave the trick away.
+    constexpr float SkylineSink = 3.0f;
 
     //--------------------------------------------------------------------------
     // Vendors
@@ -768,8 +836,38 @@ namespace Config
     // How close the player has to be to open the counter, and how tall the column
     // of light standing in for the art is.
     constexpr float VendorReach        = 2.0f;
+
+    //--------------------------------------------------------------------------
+    // The vendor themselves - see the note in world/Vendors.h.
+    //
+    // A shade taller than the player's own eye height, so walking up to one is
+    // looking slightly UP at them. A vendor the player looks down on reads as a
+    // prop on a table rather than as a person behind a counter.
+    //--------------------------------------------------------------------------
+    constexpr float VendorHeight       = 1.95f;
+
+    // The breath: how far the body rises and falls, and how long a full cycle
+    // takes. Small and slow on purpose - this is standing still, not idling in
+    // place, and anything a player can actually SEE moving here would be a
+    // distraction in a room they came to shop in.
+    constexpr float VendorBreathRise   = 0.045f;
+    constexpr float VendorBreathPeriod = 3.4f;
+
+    // The sway, in radians either side of facing the player. Slower than the
+    // breath and deliberately not a multiple of it, so the two never line up into
+    // one obvious loop.
+    constexpr float VendorSwaySwing    = 0.055f;
+    constexpr float VendorSwayPeriod   = 5.1f;
+
+    // How high over the model's own head the name floats
+    constexpr float VendorLabelLift    = 0.55f;
     constexpr float VendorMarkerRadius = 0.7f;
     constexpr float VendorMarkerHeight = 2.2f;
+
+    // How tall the AURA stands now there is somebody in it - see the note at the
+    // draw. Barely more than knee high on the character: the pool says where they
+    // are and the column is only there to give the motes something to turn about.
+    constexpr float VendorAuraHeight   = 0.9f;
 
     // How far away a vendor's name is still drawn. Far enough to spot one across a
     // room and to know which it is; short enough that the names are not a layer of

@@ -130,6 +130,25 @@ public:
     // note on the definition.
     void Load(AssetManager &assets, unsigned int seed);
 
+    //------------------------------------------------------------------------------
+    // Every model a dungeon is built and dressed out of, into the AssetManager and
+    // no further - see the note on the definition.
+    //
+    // Public so the loading screen can run it as a step of its own: it is about a
+    // second of glTF parsing the first time and nothing every time after, where the
+    // rest of Load is per-floor work measured in single milliseconds. Load calls it
+    // regardless, so nothing that builds a floor has to remember to.
+    //------------------------------------------------------------------------------
+    void LoadArt(AssetManager &assets);
+
+    //------------------------------------------------------------------------------
+    // The same thing in slices, so a loading screen can draw itself between them -
+    // see the note on LoadArtStep. `step` runs 0 to ArtStepCount() - 1, in any
+    // order, and running all of them is exactly what LoadArt does.
+    //------------------------------------------------------------------------------
+    static int ArtStepCount();
+    void LoadArtStep(AssetManager &assets, int step);
+
     void Unload();
     void Draw() const;
 

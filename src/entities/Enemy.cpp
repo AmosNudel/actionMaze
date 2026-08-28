@@ -26,6 +26,21 @@ namespace
     {
         if ((amount <= 0) || !enemy.IsAlive()) return;
 
+        //--------------------------------------------------------------------------
+        // SPLASH's sunder, applied HERE rather than at the spell that caused it, so
+        // it lifts every source of damage there is: the sword, the thrown dagger,
+        // the burn already running, the next cast. That is what "lowers defences"
+        // has to mean to be worth a slot in the book - a debuff that only made the
+        // debuffer hit harder would be a damage multiplier wearing a costume.
+        //
+        // Rounded up rather than truncated, so a one-point tick under a sunder is
+        // still visibly worse than the same tick without one.
+        //--------------------------------------------------------------------------
+        if (enemy.sunderTime > 0.0f)
+        {
+            amount = (int)(amount*Config::SplashSunderFactor + 0.5f);
+        }
+
         enemy.health -= amount;
         enemy.hurtFlash = 0.15f;
 
@@ -166,7 +181,9 @@ void Enemy::TakeDamageFrom(int amount, Vector3 source, float poiseScale)
 {
     if ((amount <= 0) || !IsAlive()) return;
 
-    const bool blocked = IsBlocking() &&
+    // A sundered body's guard is part of what SPLASH stripped - see the note on
+    // Enemy::sunderTime. The arms stay up, and stop being worth anything.
+    const bool blocked = IsBlocking() && (sunderTime <= 0.0f) &&
                          InCone(Center(), Forward(), source, 1000.0f, Config::EnemyBlockArc);
 
     if (blocked)
@@ -184,15 +201,13 @@ void Enemy::TakeDamageFrom(int amount, Vector3 source, float poiseScale)
 // What a school leaves behind, over and above the damage TakeDamageFrom already
 // applied.
 //
-// Dead bodies feel nothing - checked once here rather than in every branch, since
-// a corpse cannot burn, panic or be slowed and a case that tried would just be
-// leaving state on something RemoveDead is about to take away.
+// Called for the body the mote actually hit AND for every body its burst caught,
+// so everything below happens to a whole pack at once for seven of the eight -
+// which is the frame to read the durations in. See ProjectileManager::Advance.
 //
-// FLAME and REND both set the same `dotTime` mechanism and differ only in the
-// numbers they set it to - see the note on Config::MagicDotTickInterval. Refreshed
-// rather than added when one is already running: a second bolt lands as a
-// STRONGER burn, not a second one queued behind the first, which is the same rule
-// Enemy::Stun already follows for the same reason.
+// Dead bodies feel nothing - checked once here rather than in every branch, since
+// a corpse cannot burn, panic or be stripped and a case that tried would just be
+// leaving state on something RemoveDead is about to take away.
 //----------------------------------------------------------------------------------
 void Enemy::ApplyMagicEffect(Magic magic)
 {
@@ -200,42 +215,56 @@ void Enemy::ApplyMagicEffect(Magic magic)
 
     switch (magic)
     {
+        //----------------------------------------------------------------------
+        // The two DOTs, one mechanism at two settings - see the note on
+        // Enemy::dotTime. Both REFRESH rather than stacking: a second cast lands
+        // as the clock going back to full, not as a second burn queued behind
+        // the first, which is the same rule Enemy::Stun already follows.
+        //
+        // `dotSource` is set on both so the tick knows which sheet to draw, and
+        // it is what makes a poisoned body stop looking like it is on fire when
+        // a TOXIN lands on top of a FLAME.
+        //----------------------------------------------------------------------
         case Magic::Flame:
             if (dotTime <= 0.0f) dotTickTimer = Config::MagicDotTickInterval;
 
             dotTime = Config::FlameBurnDuration;
             dotDamagePerTick = Config::FlameBurnDamagePerTick;
-            dotSpreads = true;
-            break;
-
-        case Magic::Rend:
-            if (dotTime <= 0.0f) dotTickTimer = Config::MagicDotTickInterval;
-
-            dotTime = Config::RendBleedDuration;
-            dotDamagePerTick = Config::RendBleedDamagePerTick;
-            dotSpreads = false;
+            dotSource = Magic::Flame;
             break;
 
         //----------------------------------------------------------------------
-        // TOXIN stacks rather than refreshing a timer - repeated hits are what
-        // grows it, and at the cap it panics rather than piling higher. The
-        // stacks are spent on the panic: a poison that keeps counting past the
-        // cap would need a second flee to spend it on.
+        // TOXIN, and its panic. A body already under a poison that takes a
+        // second dose breaks and runs - which is what is left of the old
+        // stacking version, and it is the better half of it: the stacks were a
+        // counter the player could not see, where "I poisoned it twice and it
+        // ran" is a rule they can learn in one fight.
+        //
+        // The DOT keeps running THROUGH the flee rather than being spent on it.
+        // Ten seconds of poison is the whole school; ending it early to pay for
+        // the panic would make the second cast a downgrade.
         //----------------------------------------------------------------------
         case Magic::Toxin:
-            if (poisonStacks <= 0) poisonTickTimer = Config::ToxinTickInterval;
-
-            if (poisonStacks < Config::ToxinMaxStacks) poisonStacks++;
-
-            if (poisonStacks >= Config::ToxinMaxStacks)
+            if ((dotTime > 0.0f) && (dotSource == Magic::Toxin))
             {
                 fleeTime = Config::ToxinFleeDuration;
-                poisonStacks = 0;
             }
+            else
+            {
+                dotTickTimer = Config::MagicDotTickInterval;
+            }
+
+            dotTime = Config::ToxinDotDuration;
+            dotDamagePerTick = Config::ToxinDamagePerTick;
+            dotSource = Magic::Toxin;
             break;
 
+        // Defences down - see the note on Enemy::sunderTime for what that
+        // actually reaches. Longest of the three timed debuffs, because it does
+        // nothing on its own: it is bought to be spent on whatever the player
+        // does next, and a window too short to swing in would buy nothing.
         case Magic::Splash:
-            if (Config::SplashSlowDuration > slowTime) slowTime = Config::SplashSlowDuration;
+            if (Config::SplashSunderDuration > sunderTime) sunderTime = Config::SplashSunderDuration;
             break;
 
         // Holds detection at zero rather than damaging anything - see
@@ -246,13 +275,22 @@ void Enemy::ApplyMagicEffect(Magic magic)
             detection = 0.0f;
             break;
 
-        // SPARK's guaranteed crit is decided at the cast, and BLAST's shove and
-        // NOVA's area both need information an enemy does not have (the bolt's own
-        // line of travel, and the rest of the enemy list) - see
-        // ProjectileManager::Advance for those two.
+        //----------------------------------------------------------------------
+        // The three that need something an enemy does not have, and so are not
+        // here at all - see ProjectileManager::Advance for all three:
+        //
+        //   SPARK   its guaranteed critical was rolled at the cast
+        //   NOVA    the shove wants the impact point to push away from
+        //   REND    the lifesteal wants the player to pay it to
+        //
+        // BLAST is here for a different reason: it has no effect. Widest burst
+        // and hardest hit IS the school, and giving it a rider as well would
+        // leave the other seven with nothing to be.
+        //----------------------------------------------------------------------
         case Magic::Spark:
         case Magic::Blast:
         case Magic::Nova:
+        case Magic::Rend:
         default:
             break;
     }

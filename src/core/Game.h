@@ -31,6 +31,7 @@
 #include "world/Chaos.h"
 #include "world/Event.h"
 #include "world/Level.h"
+#include "world/Skyline.h"
 #include "world/Loot.h"
 #include "world/Pickup.h"
 #include "world/Treasure.h"
@@ -65,12 +66,14 @@ private:
     //------------------------------------------------------------------------------
     // Which screen owns the frame, before there is even a run to be in.
     //
-    // BootLoading and RunLoading both exist for the same reason: LoadRunAssets and
-    // StartNewRun are blocking calls, and a loading screen has to actually be on
-    // screen - drawn and presented - before Update blocks on one, or there is
-    // nothing for it to have shown. MainMenu, Options and Credits are the pages
-    // reachable from the front door; InGame is everything Update/Draw did before
-    // any of this existed, moved into UpdateInGame without changing shape.
+    // BootLoading and RunLoading both exist for the same reason: the gameplay art
+    // is a second of blocking, GL-bound loading, and a loading screen has to
+    // actually be on screen - drawn and presented - before any of it runs.
+    // RunLoading walks that work one step per frame so the page is drawn between
+    // every pair of them; see UpdateRunLoading. MainMenu, Options and Credits are
+    // the pages reachable from the front door; InGame is everything Update/Draw
+    // did before any of this existed, moved into UpdateInGame without changing
+    // shape.
     //------------------------------------------------------------------------------
     enum class AppState { BootLoading, MainMenu, Options, Credits, RunLoading, InGame };
 
@@ -92,8 +95,30 @@ private:
     void UpdateBootLoading(float delta);
     void UpdateMainMenu(float delta);
     void UpdateOptions(float delta);
+
+    // The same page over a paused run - see the note on `pauseOptions`. Returns
+    // whether it OWNED this frame - not whether it is still up - which is what
+    // stops the pause menu underneath reading the same click. See the definition.
+    bool UpdatePauseOptions();
+
+    // Everything the options page can report except Back, which the two callers
+    // answer differently. Returns whether Back was what happened.
+    bool HandleOptionsChoice(OptionsScreen::Choice choice);
+
+    // What the page draws, filled in from the settings Game owns on its behalf.
+    // `backLabel` is the caller's own word for its way out - see OptionsView.
+    OptionsView OptionsShown(const char *backLabel) const;
     void UpdateCredits(float delta);
     void UpdateRunLoading(float delta);
+
+    // One step of the run load - see the label table beside the definition. Steps
+    // run one a frame so the loading screen is drawn between them.
+    void RunLoadStep(int index);
+
+    // What the loading screen shows: how much is done, and what is being loaded
+    // right now. Both derived from `runLoadStep` alone.
+    float RunLoadProgress() const;
+    const char *RunLoadLabel() const;
 
     // Everything Update() did before the front end existed: the run-phase switch,
     // UpdateScreens, UpdateWorld, the death check. Only reached while
@@ -105,17 +130,6 @@ private:
     void UpdateDying(float delta);
 
     //------------------------------------------------------------------------------
-    // The once-ever gameplay assets: sky, view models, enemies, HUD, projectiles,
-    // vfx, portal, events, vendors, loot, pickups, treasure.
-    //
-    // Split out of Init() so the boot screen only ever waits on LoadUiFont - the
-    // one thing every page here needs before it can draw a word - and the Main
-    // Menu can be on screen before any of this has run. Called once, the first
-    // time Start Game is pressed (see `runAssetsLoaded`); StartNewRun still runs
-    // every time a fresh run starts, exactly as before this existed.
-    //------------------------------------------------------------------------------
-    void LoadRunAssets();
-
     // What the equipped weapons do this frame, read back from the view model
     void RefreshLoadout();
 
@@ -138,9 +152,8 @@ private:
     // What finishing a floor actually does: one floor deeper, unless this was the
     // last one, in which case the run ends in victory instead.
     //
-    // The one place both ways of finishing a floor - walking the portal's dwell out
-    // and the pause menu's Descend shortcut - have to agree, so a shortcut past the
-    // walk cannot also be a shortcut past the ending.
+    // Reached by walking the portal's dwell out, which is now the only way down -
+    // see the note on the definition.
     //------------------------------------------------------------------------------
     void AdvanceFloor();
 
@@ -268,6 +281,11 @@ private:
     TraitLoadout traits;
 
     Sky sky;
+
+    // The town outside the walls - see world/Skyline.h. Beside the sky rather than
+    // beside the level, because that is what it is: something on the horizon that
+    // the floor is seen against, and nothing the floor itself can touch.
+    Skyline skyline;
     FpsCamera camera;
     Hud hud;
     CharacterSheet sheet;
@@ -355,15 +373,20 @@ private:
     AppState appState = AppState::BootLoading;
     AppState pendingState = AppState::BootLoading;
 
-    // Where RunLoading is in its own two-tick sequence - see UpdateRunLoading.
+    // Where RunLoading is in its own sequence - see UpdateRunLoading.
     RunLoadStage runLoadStage = RunLoadStage::Enter;
+
+    // Which load step runs next, and therefore how many have finished. Reset by
+    // EnterState; drives both the bar and the line under it.
+    int runLoadStep = 0;
 
     // How long the current loading screen (boot or run) has been up - drives its
     // minimum visible time and the animated dots on it. Reset by EnterState.
     float loadingElapsed = 0.0f;
 
-    // Whether LoadRunAssets has run yet - see its own note. False only until the
-    // first Start Game press; StartNewRun runs every time regardless.
+    // Whether the ART steps of the run load have run yet. False only until the
+    // first Start Game press; the last step - building the floor - runs every time
+    // regardless. See UpdateRunLoading.
     bool runAssetsLoaded = false;
 
     // The runtime settings Options controls. Session-only - nothing here is
@@ -371,4 +394,31 @@ private:
     // between launches either.
     bool fullscreenOn = Config::Fullscreen;
     float masterVolume = 1.0f;
+
+    //------------------------------------------------------------------------------
+    // Mute, kept apart from the volume rather than folded into it - see the note on
+    // the mute row in OptionsScreen.cpp. `masterVolume` is what the player chose and
+    // never moves when they mute; what raylib is actually told is the two combined,
+    // which is the one line in ApplyVolume.
+    //------------------------------------------------------------------------------
+    bool muted = false;
+
+    // Pushes `masterVolume` and `muted` at raylib. One place rather than at each of
+    // the three controls that can change either, so a new way to change them cannot
+    // forget half the answer.
+    void ApplyVolume() const;
+
+    //------------------------------------------------------------------------------
+    // The options page is up OVER the paused run, rather than as an AppState.
+    //
+    // A state would mean leaving InGame and coming back to it, which is a fade, a
+    // cursor hand-off and a run that has to be preserved across both - all to show
+    // three rows over a world that is already stopped. The pause menu is drawn the
+    // same way and for the same reason, and this sits one layer above it: the menu
+    // opened it, so it goes on top of the menu, exactly as the character sheet does.
+    //
+    // Only ever true while `pause` is open. Back closes this and leaves the menu
+    // standing, which is where the player was when they asked for it.
+    //------------------------------------------------------------------------------
+    bool pauseOptions = false;
 };

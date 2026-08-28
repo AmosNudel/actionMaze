@@ -26,10 +26,17 @@
 // crypt - makes both the vendor and the room mean less.
 //
 // --- The art -------------------------------------------------------------------------
-// There is none yet. A vendor is drawn as a coloured column of light with their name
-// over it, which is the same object the events and the portal already use - so the
-// player learns "a column of light is something to walk into" once and it keeps being
-// true. Swapping in a model later is one function.
+// Each one is a KayKit dungeon-pack adventurer standing in an aura of their own
+// colour: the mage sells magic, the rogue sells arms, the knight sells contracts.
+// The aura is what the column of light became - the player already learned that
+// coloured light means "walk into this" from the portal and the event markers, and
+// that promise is kept by keeping the pool and the motes and losing only the height
+// that used to stand where the character now does.
+//
+// The models are STATIC. The dungeon pack's adventurers have no rig and no clips at
+// all - six loose body-part meshes and nothing to drive them - so the idle is
+// procedural: see VendorManager::Draw. It is a breath and a sway rather than an
+// animation, which is as close to alive as an unrigged model gets.
 //----------------------------------------------------------------------------------
 enum class NpcKind
 {
@@ -45,7 +52,13 @@ struct NpcDef
     const char *name;       // Over their head and on the prompt - keep it short
     const char *title;      // The shop page's subheading
     Currency currency;      // What they trade in, for the price columns
-    Color colour;           // Their column, and the shop page's accent
+    Color colour;           // Their aura, and the shop page's accent
+
+    // Who they are, as a model. Relative to the asset dir, and optional in the same
+    // way every other model in this project is: a missing file costs the character
+    // and nothing else, because the aura they stand in is drawn either way and the
+    // aura is what the player is actually navigating by.
+    const char *modelPath;
 };
 
 const NpcDef &NpcAt(NpcKind kind);

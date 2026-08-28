@@ -2,6 +2,7 @@
 
 #include "combat/Attack.h"      // InCone, for the vision arc
 #include "combat/Collider.h"
+#include "combat/Magic.h"
 #include "combat/Projectile.h"
 #include "core/Config.h"
 #include "entities/Player.h"
@@ -9,6 +10,7 @@
 #include "render/AssetManager.h"
 #include "render/Beam.h"
 #include "render/Glow.h"
+#include "render/Vfx.h"
 #include "world/Level.h"
 #include "world/Loot.h"
 
@@ -819,45 +821,6 @@ void EnemyManager::UpdateRaider(Enemy &enemy, float delta, Level &level)
     UpdateAnimation(enemy, delta, move.y);
 }
 
-//----------------------------------------------------------------------------------
-// FLAME's one jump, spent on the way out of the burn rather than at every tick -
-// see the call site in Update. Nearest rather than random, so it reads as the fire
-// actually catching on whatever was closest rather than picking a body across the
-// room for no visible reason.
-//----------------------------------------------------------------------------------
-void EnemyManager::SpreadBurnFrom(Enemy &from)
-{
-    int target = -1;
-    float nearest = Config::FlameSpreadRadius;
-
-    for (int i = 0; i < (int)enemies.size(); ++i)
-    {
-        Enemy &other = enemies[(size_t)i];
-
-        if (&other == &from) continue;
-        if (!other.IsAlive()) continue;
-        if (other.dotTime > 0.0f) continue;     // Already alight - nothing to catch
-
-        const float dx = other.body.position.x - from.body.position.x;
-        const float dz = other.body.position.z - from.body.position.z;
-        const float away = sqrtf(dx*dx + dz*dz);
-
-        if (away > nearest) continue;
-
-        nearest = away;
-        target = i;
-    }
-
-    if (target < 0) return;
-
-    Enemy &spread = enemies[(size_t)target];
-
-    spread.dotTime = Config::FlameBurnDuration;
-    spread.dotTickTimer = Config::MagicDotTickInterval;
-    spread.dotDamagePerTick = Config::FlameBurnDamagePerTick;
-    spread.dotSpreads = true;       // It can jump again from its new host
-}
-
 int EnemyManager::BuffedDamage(const Enemy &enemy)
 {
     if (!enemy.IsBuffed()) return enemy.damage;
@@ -1488,7 +1451,7 @@ void EnemyManager::SpreadAlarm(float delta, const Level &level)
 }
 
 void EnemyManager::Update(float delta, Level &level, Player &player,
-                          ProjectileManager &projectiles, bool refill)
+                          ProjectileManager &projectiles, VfxManager &vfx, bool refill)
 {
     // Before the AI loop, so a body that arrives this frame gets its first think
     // now. Safe to grow the list here and only here: the loop below takes
@@ -1543,35 +1506,33 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
             {
                 enemy.dotTickTimer += Config::MagicDotTickInterval;
                 enemy.TakeDamage(enemy.dotDamagePerTick);
+
+                //--------------------------------------------------------------
+                // The picture of it, replayed on the body every tick - this is
+                // what "the fire stays up on them" is, and it is the school's
+                // own impact sheet rather than a second effect system (see
+                // Enemy::dotSource).
+                //
+                // Drawn at a fraction of the size the cast itself lands at, and
+                // at the body's CENTRE rather than its feet: a burn at full
+                // impact size would be as loud as the cast that started it, on
+                // three bodies at once, twice a second.
+                //
+                // Spawned even on the tick that kills, deliberately. The body
+                // falls over inside its own fire, which is the frame that says
+                // what killed it.
+                //--------------------------------------------------------------
+                const MagicDef &burning = MagicAt(enemy.dotSource);
+
+                vfx.Spawn(burning.impact, enemy.Center(),
+                          burning.impactSize*Config::MagicDotEffectScale,
+                          burning.impactTint);
             }
 
-            if (enemy.IsAlive() && (enemy.dotTime <= 0.0f))
-            {
-                enemy.dotTime = 0.0f;
-
-                // Spent on the way out, not at every tick - a burn that kept
-                // re-spreading itself every half second would turn one cast into
-                // a whole room on fire rather than one jump.
-                if (enemy.dotSpreads)
-                {
-                    enemy.dotSpreads = false;
-                    SpreadBurnFrom(enemy);
-                }
-            }
+            if (enemy.dotTime <= 0.0f) enemy.dotTime = 0.0f;
         }
 
-        if (enemy.IsAlive() && (enemy.poisonStacks > 0))
-        {
-            enemy.poisonTickTimer -= delta;
-
-            if (enemy.poisonTickTimer <= 0.0f)
-            {
-                enemy.poisonTickTimer += Config::ToxinTickInterval;
-                enemy.TakeDamage(Config::ToxinDamagePerStack*enemy.poisonStacks);
-            }
-        }
-
-        if (enemy.slowTime > 0.0f) enemy.slowTime -= delta;
+        if (enemy.sunderTime > 0.0f) enemy.sunderTime -= delta;
         if (enemy.blindTime > 0.0f) enemy.blindTime -= delta;
 
         // A DOT or a stack of poison can still kill on its own tick, same as any
@@ -1668,7 +1629,8 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
         Vector2 move = { 0.0f, 0.0f };
 
         //--------------------------------------------------------------------------
-        // TOXIN's panic: a whole separate behaviour, the same shape as raiding
+        // TOXIN's panic - a second dose on an already-poisoned body, see
+        // Enemy::ApplyMagicEffect. A whole separate behaviour, the same shape as raiding
         // above and for the same reason. Nothing here shares anything with the
         // ordinary think - no sight cone, no detection, no guard, no swing - it
         // knows one thing, which is which way the player is, and it wants the
@@ -1684,12 +1646,6 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
             if (distance > 1e-3f) enemy.yaw = atan2f(toPlayer.x, toPlayer.z);
 
             move.y = 1.0f;
-
-            if (enemy.slowTime > 0.0f)
-            {
-                move.x *= Config::SplashSlowFactor;
-                move.y *= Config::SplashSlowFactor;
-            }
 
             enemy.blocking = false;
             enemy.body.Update(delta, enemy.yaw, move, false, false);
@@ -2096,15 +2052,6 @@ void EnemyManager::Update(float delta, Level &level, Player &player,
         {
             move = { 0.0f, 0.0f };
             enemy.body.Halt();
-        }
-
-        // SPLASH's chill: a plain scale on the movement input itself rather than
-        // on body.maxSpeed, so it fades back to the tier's own speed the instant
-        // slowTime runs out without this having to remember what that speed was.
-        if (enemy.slowTime > 0.0f)
-        {
-            move.x *= Config::SplashSlowFactor;
-            move.y *= Config::SplashSlowFactor;
         }
 
         enemy.body.Update(delta, enemy.yaw, move, false, false);

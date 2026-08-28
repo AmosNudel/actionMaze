@@ -61,9 +61,10 @@ struct MagicDef
     // one, and it goes on meaning it for the whole run - because enemy health grows
     // linearly with rank and so does the arcane line underneath this.
     //
-    // The band is deliberately narrow (0.8 to 1.7). A school's real spread is in
-    // its SPEED and its impact, and the multiplier is only there to make the fast
-    // ones worth less per hit than the slow ones.
+    // The band is deliberately narrow (0.8 to 1.9). A school's real spread is in
+    // its EFFECT, its reach and its speed, and the multiplier is only there to
+    // make the fast ones and the utility ones worth less per hit than the two
+    // that are bought to kill things.
     //------------------------------------------------------------------------------
     float damageMult;
 
@@ -73,20 +74,43 @@ struct MagicDef
     // target did. Applied in ProjectileManager::Advance, the same place NOVA's
     // own burst always was; every school gets one now instead of just that one.
     //
-    // Still set against each other rather than to one shared number: NOVA stays
-    // the widest because "the one real area of effect" is still its whole
-    // identity, and FLASH/SPARK stay tight because a school that is fast and
-    // small in every other column reading as fast and small here too is the
-    // point, not an oversight.
+    // Except SPARK, which is ZERO, and that is the whole shape of the table now:
+    // seven schools that answer a ROOM and one that answers a BODY. SPARK pays
+    // for being alone in that column by critting every time it lands (see
+    // Enemy::ApplyMagicEffect's note), so the choice a player makes when they
+    // cycle onto it is "this one thing, hard" against "all of them, less".
     //
-    // Declared AFTER damageMult on purpose - it must stay last, matching the
-    // table's own trailing column, or every positional initializer in it shifts
-    // by one field silently. That is exactly the bug that shipped the first time
-    // this was added ahead of damageMult instead: no compile error, just every
-    // school's cost and damage reading its aoeRadius and its aoeRadius reading
-    // its damageMult.
+    // Still set against each other rather than to one shared number: BLAST is the
+    // widest because raw reach and raw damage are what it is, NOVA is next
+    // because a shove that did not catch a pack would not move a fight, and REND
+    // is the tightest of the seven because every body it catches pays the caster
+    // health back and a lifesteal with no range limit is a health bar that never
+    // empties.
+    //
+    // Declared AFTER damageMult on purpose - see aoeMaxTargets below, which is
+    // now the trailing column that has to stay last.
     //------------------------------------------------------------------------------
     float aoeRadius;
+
+    //------------------------------------------------------------------------------
+    // At most this many OTHER bodies the burst may take, nearest first. Zero means
+    // no cap, which is what every school but FLAME says.
+    //
+    // FLAME is the reason this column exists: "it spreads to what is next to it"
+    // and "it hits everything in a five unit circle" are the same code and very
+    // different spells, and the difference between them is entirely a number. A
+    // fire that takes the three nearest bodies reads as catching; the same fire
+    // with no cap reads as a second BLAST that happens to be orange.
+    //
+    // Nearest first rather than whatever the enemy vector happened to hold, so
+    // the three it takes are the three the player can see it should have.
+    //
+    // This is the trailing column and must STAY last, for the reason the note on
+    // aoeRadius used to carry: the table below is positional, so a field inserted
+    // ahead of another silently shifts every row's remaining values by one - no
+    // compile error, just every school reading the wrong number for everything.
+    //------------------------------------------------------------------------------
+    int aoeMaxTargets;
 };
 
 // The table, by index. `Count` entries, in enum order.

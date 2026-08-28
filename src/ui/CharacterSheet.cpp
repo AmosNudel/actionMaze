@@ -152,19 +152,25 @@ namespace
     // were dropped in favour of these. One line each, in Magic order, written for
     // the player rather than for the code: this is the answer to "what does
     // casting this do" that otherwise only lives in a comment.
+    //
+    // Every one of them says WHO it happens to as well as what it is, because
+    // that is the axis the book is actually built on now - seven schools that
+    // answer a room and one that answers a body - and a line that only named the
+    // effect would leave the single most important difference between SPARK and
+    // everything else unwritten.
     //------------------------------------------------------------------------------
     const char *MagicEffectText(Magic magic)
     {
         switch (magic)
         {
-            case Magic::Flame:  return "burns everyone nearby, and can jump again from there";
-            case Magic::Spark:  return "every hit is a critical strike, burst included";
-            case Magic::Toxin:  return "stacks poison on everyone nearby - flees at max stacks";
-            case Magic::Blast:  return "knocks back and interrupts everyone nearby";
-            case Magic::Splash: return "chills and slows everyone nearby";
+            case Magic::Flame:  return "catches on the three nearest - they keep burning";
+            case Magic::Spark:  return "one enemy only, and it always lands a critical";
+            case Magic::Toxin:  return "a long poison on everyone nearby - the slowest kill";
+            case Magic::Blast:  return "the widest burst on the table, and the hardest";
+            case Magic::Splash: return "strips defences nearby - they take more from everything";
             case Magic::Flash:  return "blinds everyone nearby - they lose track of you";
-            case Magic::Nova:   return "the widest burst on the table";
-            default:             return "bleeds everyone nearby - short, sharp, close";  // Rend
+            case Magic::Nova:   return "throws everyone nearby back and cuts off what they were doing";
+            default:             return "every body it hits gives you back health";  // Rend
         }
     }
 }
