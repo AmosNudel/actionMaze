@@ -110,7 +110,7 @@ void Hud::Draw(const Player &player, const ViewModel &viewModel, const Level &le
                const TreasureManager &treasure, const EnemyManager &enemies,
                const Camera3D &camera, bool inPortal) const
 {
-    (void)viewModel;    // Its tuning readout lives in the ViewModelEditor's own box
+    (void)viewModel;
 
     minimap.Draw(level, events, vendors, player.Position(), player.Yaw());
 

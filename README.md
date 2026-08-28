@@ -51,35 +51,8 @@ rebuilds only what includes it.
 | Right mouse | Attack with the left hand (hold to keep a shield up) |
 | E | Trade, when standing at a vendor |
 | 1-8 | Select a school of magic (only the ones you own) |
-| F5 | Toggle combat debug (blade capsules, enemy capsules, wall cells) |
 | Tab | Character page |
 | Esc | Pause page |
-
-Weapon pose editor (development tool, see `src/debug/`):
-
-| Input | Action |
-| --- | --- |
-| T | Position gizmo — drag the arrows |
-| Y | Rotation gizmo — drag the rings |
-| H | Switch which hand the gizmo is attached to |
-| G | Switch between the rest pose and the end-of-attack pose |
-| U | Append every weapon's poses to `viewmodel_poses.txt` |
-| `[` `]` | Shrink / grow the pose being edited |
-
-Opening a gizmo releases the mouse cursor and suspends mouse look, so dragging
-does not spin the view. The gizmo axes are the camera's own right/up/forward,
-because that is the space the pose lives in: red is right/pitch, green is
-up/yaw, blue is forward/roll.
-
-The rings are picked and dragged **in screen space**, against the shape actually
-drawn. Intersecting the mouse ray with a ring's plane cannot pick a ring seen
-edge on — which the yaw ring usually is — and measures its angle in a fixed
-world frame, so a ring viewed from the far side turns backwards. That is why
-left hand rotation used to fight back: the left hand sits across the view axis
-from the right. Dragging counter clockwise now always turns the ring counter
-clockwise, whichever hand and whichever side. Tune, press U, then paste the file's contents over
-`TunedPoses` in [ViewModel.cpp](src/render/ViewModel.cpp) to make them the
-defaults.
 
 ## World and collision
 
@@ -214,8 +187,6 @@ Forcing the sign of the signed area makes the marker independent of which way yo
 
 `Hud` owns it, which is why the depth label, the health bar and the school row lay themselves
 out *below* `Minimap::Height()` and the chaos bar starts at `Minimap::Right()`.
-`Game::Regenerate` calls `Hud::ResetMap` — otherwise F6 would leave you holding a map of a
-dungeon that no longer exists.
 
 Everything on the HUD is written in **design pixels** and multiplied by `UiScale()` — see
 `src/ui/UiTheme.h`. That is `screenHeight / Config::UiDesignHeight`, so one number moves the
@@ -500,10 +471,7 @@ src/
     Ragdoll.h/.cpp      Verlet corpse: takes the bones over after the death clip
     ViewModel.h/.cpp    The held weapon: per-weapon pose, drawn in camera space
   ui/
-    Hud.h/.cpp          Crosshair, health bar, debug readout
-  debug/
-    ViewModelEditor.*   Gizmos for dialling in weapon poses. Delete to remove.
-    CombatDebug.*       F5: blade capsules, enemy capsules, wall cells
+    Hud.h/.cpp          Crosshair, health bar, minimap, and status displays
 assets/
   models/weapons/       23 KayKit glTF models + shared atlas
   models/enemies/       4 rigged KayKit skeletons (.glb, texture embedded)
@@ -755,9 +723,8 @@ already flattest through Y (a coin) is left the right way up, and nothing lying 
 fell blocks: furniture is what you walk around, a dropped weapon is what you walk over.
 
 `Level::AuditReachability()` checks the result at load and warns about any room the
-furniture has sealed. **F6 regenerates the level from a fresh seed**, and
-`Config::LevelSeed` is a forcing value — zero rolls from the clock, anything else pins a
-map worth walking twice.
+furniture has sealed. `Config::LevelSeed` is a forcing value: zero rolls from the clock,
+anything else pins a map worth walking twice.
 
 **Melee and ranged combat** — add `combat/Weapon.h/.cpp` (damage, range,
 cooldown, melee vs. hitscan vs. projectile) and `combat/Projectile.h/.cpp`.

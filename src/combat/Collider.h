@@ -24,9 +24,7 @@ struct Capsule
 
 // A standing body as combat sees it: a vertical capsule from the feet to
 // `height`, with the caps tucked inside so the total extent is exactly `height`
-// rather than height plus two radii. This is the same shape CombatDebug has
-// always drawn for enemies, which is now not a coincidence: the overlay shows the
-// volume that is actually tested.
+// rather than height plus two radii.
 Capsule BodyCapsule(Vector3 feet, float height, float radius);
 
 // Shortest distance between two segments. The whole collision system rests on

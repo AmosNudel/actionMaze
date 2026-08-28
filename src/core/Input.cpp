@@ -19,8 +19,6 @@ InputState InputState::Poll()
     in.altAttack  = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
     in.altAttackHeld = IsMouseButtonDown(MOUSE_BUTTON_RIGHT);
     in.interact   = IsKeyPressed(KEY_E);
-    in.toggleCombatDebug = IsKeyPressed(KEY_F5);
-    in.regenerateLevel = IsKeyPressed(KEY_F6);
     in.characterSheet = IsKeyPressed(KEY_TAB);
 
     // KEY_ONE..KEY_NINE are contiguous in raylib, so the row is a loop rather than

@@ -1466,9 +1466,6 @@ void Game::UpdateRunEnd()
 
 void Game::UpdateWorld(float delta)
 {
-    if (input.toggleCombatDebug) combatDebug.Toggle();
-    if (input.regenerateLevel) Descend();
-
     //------------------------------------------------------------------------------
     // The number keys, over the schools the player has actually bought.
     //
@@ -1487,8 +1484,7 @@ void Game::UpdateWorld(float delta)
     }
 
     // Look first: the body turns toward where the player is looking this frame.
-    // Suspended while a gizmo is up, so dragging it does not spin the view.
-    if (!viewModelEditor.BlocksLook()) camera.ApplyLookInput(input.look);
+    camera.ApplyLookInput(input.look);
 
     // Doors finish their swings before anything is resolved against them, so a
     // body never gets pushed by a slab that has already moved out of its way
@@ -1508,17 +1504,14 @@ void Game::UpdateWorld(float delta)
     enemies.Update(delta, level, player, projectiles, vfx, !chaos.quelled);
     level.ResolveBody(player.body);     // Enemies can shove; walls still win
 
-    // Left button swings the right hand, right button the left. While a gizmo is
-    // up the mouse belongs to the editor, so clicks must not also attack.
+    // Left button swings the right hand, right button the left.
     RefreshLoadout();
 
     bool pressed[HandCount] = { false, false };
     bool held[HandCount] = { false, false };
 
-    // A staggered body swings at nothing either - see Player::staggerTime. Gated
-    // here alongside the editor rather than inside UpdateAttacks, because this is
-    // where "may the player act at all this frame" is already being decided.
-    if (!viewModelEditor.IsActive() && !player.IsStaggered())
+    // A staggered body swings at nothing either - see Player::staggerTime.
+    if (!player.IsStaggered())
     {
         pressed[(int)Hand::Right] = input.attack;
         held[(int)Hand::Right] = input.attackHeld;
@@ -1609,8 +1602,6 @@ void Game::UpdateWorld(float delta)
         const MeleeResult melee = SweepMelee(from, blade, player.EyePosition(), stats[h],
                                              player.Fighting(), level, enemies.All(),
                                              player.Attack((Hand)h));
-
-        combatDebug.NoteHit(melee.hits);
 
         //--------------------------------------------------------------------------
         // The swing going out, and what it found.
@@ -1791,7 +1782,6 @@ void Game::UpdateWorld(float delta)
     }
 
     hadBlades = true;
-    combatDebug.NoteBlades(blades);
 
     // After both sides have fired, so anything released this frame takes its first
     // step now rather than hanging in the weapon until the next one
@@ -1883,7 +1873,6 @@ void Game::UpdateWorld(float delta)
     }
 
     enemies.RemoveDead();
-    combatDebug.Update(delta);
 
     //------------------------------------------------------------------------------
     // The camera shake, once everything this frame that could have landed a blow
@@ -1930,8 +1919,6 @@ void Game::UpdateWorld(float delta)
     // Last, so the fog lifts around where the player actually ended the frame -
     // after the walls and the enemies have both had their say about that
     hud.Update(level, player);
-
-    viewModelEditor.Update(viewModel, camera.Get());
 
     // TODO: pickups.Update(delta, player);
 }
@@ -2025,7 +2012,6 @@ void Game::DrawInGame()
 
     viewModel.BeginPass(camera.Get(), passWidth, passHeight);
         viewModel.Draw(camera.Get());
-        viewModelEditor.Draw(viewModel, camera.Get());
     viewModel.EndPass();
 
     // Before anything is drawn with them: the haze is a distance from the eye, and
@@ -2063,7 +2049,6 @@ void Game::DrawInGame()
             // impact goes over the body it went off on rather than being sorted
             // against it
             vfx.Draw(camera.Get());
-            combatDebug.Draw(player, stats, level, enemies);
 
         EndMode3D();
 
@@ -2084,9 +2069,6 @@ void Game::DrawInGame()
         // carries on under the pause menu, which is fine, because the pause menu
         // covers the picture it is breathing over.
         post.Draw(HurtAmount(), (float)GetTime());
-
-        viewModelEditor.DrawUi(viewModel);
-        combatDebug.DrawUi(player, enemies);
 
         // Their names, over their columns. Screen space, so it cannot live inside
         // BeginMode3D with the columns themselves - and before the HUD, so a vendor

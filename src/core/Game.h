@@ -5,8 +5,6 @@
 #include "combat/Weapon.h"
 #include "core/Fader.h"
 #include "core/Input.h"
-#include "debug/CombatDebug.h"
-#include "debug/ViewModelEditor.h"
 #include "entities/EnemyManager.h"
 #include "entities/Player.h"
 #include "progress/Arsenal.h"
@@ -336,7 +334,6 @@ private:
     ShopScreen shop;
     RunEndScreen runEnd;
     ViewModel viewModel;
-    ViewModelEditor viewModelEditor;
 
     // The front end - see the AppState note above
     Fader fader;
@@ -353,7 +350,6 @@ private:
     // from it, and a render target per page would be twice the GPU memory for a
     // picture that is never on screen twice at once.
     WeaponPreview weaponPreview;
-    CombatDebug combatDebug;
 
     InputState input;
     AttackStyle styles[HandCount] = { AttackStyle::Swing, AttackStyle::Swing };
