@@ -9,6 +9,7 @@
 #   Usage:
 #     make                      release build
 #     make BUILD_MODE=DEBUG     debug build (-g -O0)
+#     make package              build and stage an itch.io Windows ZIP in dist/
 #     make clean                remove objects and the executable
 #     make run                  build, then launch
 #
@@ -19,7 +20,7 @@
 #
 #**************************************************************************************************
 
-.PHONY: all clean run
+.PHONY: all clean package run
 
 PROJECT_NAME  ?= DungeonForay
 BUILD_MODE    ?= RELEASE
@@ -89,8 +90,9 @@ ifeq ($(PLATFORM_OS),WINDOWS)
     # This is what replaced raylib.rc.data out of the raylib source tree: that put
     # raylib's own icon on the .exe, which is the wrong badge for a finished game.
     RES = $(OBJ_DIR)/$(PROJECT_NAME).res
-    # Uncomment to hide the console window in release builds
-    #LDFLAGS += -Wl,--subsystem,windows
+    ifneq ($(BUILD_MODE),DEBUG)
+        LDFLAGS += -Wl,--subsystem,windows
+    endif
 endif
 
 ifeq ($(PLATFORM_OS),LINUX)
@@ -117,6 +119,9 @@ OBJS = $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(SOURCES))
 DEPS = $(OBJS:.o=.d)
 
 TARGET = $(PROJECT_NAME)$(EXT)
+DIST_DIR ?= dist
+PACKAGE_DIR = $(DIST_DIR)/$(PROJECT_NAME)-windows
+PACKAGE_ZIP = $(DIST_DIR)/$(PROJECT_NAME)-windows.zip
 
 all: $(TARGET)
 
@@ -136,6 +141,19 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 
 run: $(TARGET)
 	./$(TARGET)
+
+# itch.io accepts a runnable ZIP directly. The archive contains only the release
+# executable, every runtime asset, and the credits; source and development files
+# stay out of the upload. This target is Windows-only because package.ps1 uses
+# PowerShell's built-in Compress-Archive. Object files are shared by both build
+# modes, so clean first: otherwise a prior debug build can be packaged unchanged.
+package:
+	@if [ "$(PLATFORM_OS)" != "WINDOWS" ]; then echo "package is supported on Windows only"; exit 1; fi
+	$(MAKE) clean
+	$(MAKE) BUILD_MODE=RELEASE all
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/package.ps1 \
+		-ProjectName "$(PROJECT_NAME)" -Executable "$(TARGET)" \
+		-PackageDir "$(PACKAGE_DIR)" -PackageZip "$(PACKAGE_ZIP)"
 
 clean:
 	rm -rf $(OBJ_DIR)

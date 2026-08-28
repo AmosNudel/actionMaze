@@ -54,6 +54,13 @@ rebuilds only what includes it.
 | Tab | Character page |
 | Esc | Pause page |
 
+## Windows release package
+
+Run `make package` to create `dist/DungeonForay-windows.zip` for itch.io. The
+archive contains `DungeonForay.exe`, the complete runtime `assets/` directory,
+and `CREDITS.md`; extract it and run the executable from that folder. No MinGW
+runtime DLLs are required by the current release executable.
+
 ## World and collision
 
 The level is a tile grid ([Map.h](src/world/Map.h)) at `MapCellSize` 4.0 — set by the KayKit dungeon pack, whose floor tiles are

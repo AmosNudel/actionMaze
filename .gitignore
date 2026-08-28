@@ -4,6 +4,7 @@ obj/
 *.d
 *.exe
 *.dSYM/
+/dist/
 # The Linux/macOS binary. Leading slash so it can only mean the one at the root,
 # never a directory of the same name deeper in the tree.
 /DungeonForay
@@ -22,11 +23,6 @@ obj/
 # ---- Local tool state ------------------------------------------------------
 .claude/settings.local.json
 .claude/*.local.json
-
-# ---- Dev-time dumps --------------------------------------------------------
-# Written by the viewmodel editor (U key, see src/debug/ViewModelEditor.h).
-# A scratch file to paste out of, not an input the game reads.
-viewmodel_poses.txt
 
 # ---- OS cruft --------------------------------------------------------------
 .DS_Store
