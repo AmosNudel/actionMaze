@@ -45,6 +45,13 @@ int RankCentreForDepth(int depth)
 
     int centre = Config::EnemyDepthRankBase + (depth - 1)*Config::EnemyDepthRankStep;
 
+    // The last two floors climb faster than the ordinary step alone would take
+    // them - see the note on Config::EnemyDeepFloorStart.
+    if (depth >= Config::EnemyDeepFloorStart)
+    {
+        centre += (depth - Config::EnemyDeepFloorStart + 1)*Config::EnemyDeepFloorRankStep;
+    }
+
     if (centre < 1) centre = 1;
     if (centre > Config::EnemyMaxRank) centre = Config::EnemyMaxRank;
 

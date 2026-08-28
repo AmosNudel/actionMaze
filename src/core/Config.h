@@ -532,6 +532,13 @@ namespace Config
     constexpr float ThrowSpeed        = 30.0f;
     constexpr float ThrowReleaseAt    = 0.55f;  // Earlier - it leaves on the flick
 
+    // How much of a thrown dagger's damage also fills an enemy's poise meter -
+    // see WeaponStats::poiseScale. Well under 1: it is quick to throw and easy
+    // to keep firing from a distance nothing can answer, and at 1.0 it would
+    // flinch a body just as hard as a melee weapon dealing the same damage up
+    // close, which is backwards for the one weapon built to be used at range.
+    constexpr float ThrowPoiseScale   = 0.35f;
+
     // How far down the crosshair a shot is aimed. The weapon fires from its own
     // tip, off to one side of the eye, so a shot sent straight along the weapon's
     // axis lands beside whatever the crosshair is on. Converging on a point down
@@ -801,7 +808,9 @@ namespace Config
     constexpr int   PickupBuffPerFloor   = 1;
 
     constexpr int   PickupHealthAmount = 30;    // Flat heal
-    constexpr int   PickupManaAmount   = 15;    // Flat mana
+
+    // No flat figure for mana any more - a bottle refills it outright, the same
+    // way MaxMana() already clamps GiveMana(). See PickupManager::Collect.
 
     // How long a Buff pickup's grant lasts. One figure for all four rows of the
     // table rather than one each - what varies between them is what they DO,
@@ -983,6 +992,21 @@ namespace Config
     // which is what makes going down a decision rather than a corridor.
     constexpr int   EnemyDepthRankBase  = 1;
     constexpr int   EnemyDepthRankStep  = 3;
+
+    //--------------------------------------------------------------------------
+    // An extra push on the last two floors, on top of the ordinary per-floor
+    // step above - see RankCentreForDepth.
+    //
+    // The ordinary step assumes the player levels about twice a floor; a
+    // character levelling faster than that outruns it well before the run is
+    // over, and floors 4 and 5 - the ones meant to be the run's actual test -
+    // end up no harder than the ones before them. Rather than steepen the
+    // whole curve and reopen floor 1, this adds weight only from
+    // EnemyDeepFloorStart on, so the early floors are untouched and the last
+    // two climb faster than the rest of the run did.
+    //--------------------------------------------------------------------------
+    constexpr int   EnemyDeepFloorStart    = 4;
+    constexpr int   EnemyDeepFloorRankStep = 3;
 
     // The roll's window about that centre, and how sharply each side falls away.
     // Asymmetric on purpose: see RollRankForDepth.

@@ -1211,7 +1211,7 @@ void Game::UpdateWorld(float delta)
 
             projectiles.Spawn(muzzle, AimDirectionFrom(muzzle), speed,
                               ResolveDamage(raw, fighting, crit),
-                              ProjectileSide::AtEnemies, look, crit);
+                              ProjectileSide::AtEnemies, look, crit, stats[h].poiseScale);
         }
 
         blades[h] = blade;

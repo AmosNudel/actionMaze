@@ -152,6 +152,14 @@ void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
                     // forged, or already maxed out.
                     const std::string tagText = WeaponTagsText(arsenal.TagsAt(i));
 
+                    // The weapon's own table figures, ahead of the tags on every
+                    // row for the same reason: damage and reach are what the
+                    // player is actually choosing between, and forcing them to
+                    // open the character sheet to see either was the shop
+                    // showing a name and a price and calling that a decision.
+                    const std::string statText = TextFormat("%i dmg   %.1f reach",
+                                                            arsenal.DamageAt(i), arsenal.ReachAt(i));
+
                     row.name = arsenal.NameAt(i);
                     row.id = i;
                     row.tint = UiAccent;
@@ -160,7 +168,8 @@ void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
                     {
                         row.deal = Deal::Buy;
                         row.price = arsenal.Price(i);
-                        row.detail = tagText.empty() ? "not owned" : ("not owned    " + tagText);
+                        row.detail = "not owned    " + statText
+                                   + (tagText.empty() ? "" : ("    " + tagText));
                         row.enabled = purse.CanAfford(Currency::Coins, row.price);
                         row.note = row.enabled ? "" : "not enough coins";
                     }
@@ -168,8 +177,8 @@ void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
                     {
                         row.deal = Deal::Upgrade;
                         row.price = arsenal.ForgePrice(i);
-                        row.detail = TextFormat("forged %i / %i    +%.0f%% damage    %s",
-                                                arsenal.Forge(i), WeaponForgeMax,
+                        row.detail = TextFormat("%s    forged %i / %i    +%.0f%% damage    %s",
+                                                statText.c_str(), arsenal.Forge(i), WeaponForgeMax,
                                                 ((arsenal.DamageMult(i) - 1.0f)
                                                  + arsenal.HeldBonus(i).damageDealt)*100.0f,
                                                 tagText.c_str());
@@ -179,8 +188,8 @@ void ShopScreen::BuildRows(const Player &player, const Arsenal &arsenal,
                     else
                     {
                         row.deal = Deal::None;
-                        row.detail = TextFormat("forged %i / %i    +%.0f%% damage    %s",
-                                                WeaponForgeMax, WeaponForgeMax,
+                        row.detail = TextFormat("%s    forged %i / %i    +%.0f%% damage    %s",
+                                                statText.c_str(), WeaponForgeMax, WeaponForgeMax,
                                                 ((arsenal.DamageMult(i) - 1.0f)
                                                  + arsenal.HeldBonus(i).damageDealt)*100.0f,
                                                 tagText.c_str());

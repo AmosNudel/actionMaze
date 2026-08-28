@@ -212,6 +212,7 @@ WeaponStats StatsFor(const std::string &name, AttackStyle style, float modelHeig
             stats.projectileSpeed = Config::ThrowSpeed;
             stats.releaseAt = Config::ThrowReleaseAt;
             stats.tags |= TagThrown | TagRanged;
+            stats.poiseScale = Config::ThrowPoiseScale;
             break;
 
         case AttackStyle::Block:

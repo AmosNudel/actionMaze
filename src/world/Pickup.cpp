@@ -191,7 +191,12 @@ void PickupManager::Collect(Vector3 feet, Player &player)
         switch (pickup.kind)
         {
             case PickupKind::Health: player.Heal(Config::PickupHealthAmount); break;
-            case PickupKind::Mana:   player.GiveMana(Config::PickupManaAmount); break;
+
+            // A full refill rather than a flat sip - see GiveMana's own clamp.
+            // Unlike health, mana has no other way to top up mid-floor (it is
+            // otherwise paid for by kills alone - see progress/Spellbook.h), so
+            // the bottle finding one is worth it landing all at once.
+            case PickupKind::Mana:   player.GiveMana(player.MaxMana()); break;
             default:                 player.ApplyBuff(pickup.buff); break;
         }
 

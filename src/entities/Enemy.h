@@ -479,9 +479,17 @@ struct Enemy
     // Damage with nowhere to come from - a fall, a trap, a debug key. A guard
     // cannot be pointed at any of those, so none of it is blocked.
     void TakeDamage(int amount);
+    //------------------------------------------------------------------------------
     // Damage from somewhere, which a raised guard can be pointed at. This is what
     // combat calls; the arc test is the same InCone the player's shield uses.
-    void TakeDamageFrom(int amount, Vector3 source);
+    //
+    // `poiseScale` is how much of `amount` also counts toward the poise meter -
+    // see WeaponStats::poiseScale. 1.0 for everything except a thrown dagger: a
+    // weapon fired from where nothing can answer it should not also be the
+    // easiest way to keep a body flinching, which is what an unscaled ranged
+    // weapon with a fast cooldown would otherwise be.
+    //------------------------------------------------------------------------------
+    void TakeDamageFrom(int amount, Vector3 source, float poiseScale = 1.0f);
 
     //------------------------------------------------------------------------------
     // What a school of magic does to whatever it just hit, over and above its

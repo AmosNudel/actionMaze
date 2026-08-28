@@ -56,7 +56,8 @@ void ProjectileManager::Load(AssetManager &assets)
 }
 
 void ProjectileManager::Spawn(Vector3 from, Vector3 direction, float speed, int damage,
-                              ProjectileSide side, ProjectileLook look, bool crit)
+                              ProjectileSide side, ProjectileLook look, bool crit,
+                              float poiseScale)
 {
     const float length = Vector3Length(direction);
     if (length < 1e-4f) return;
@@ -82,6 +83,7 @@ void ProjectileManager::Spawn(Vector3 from, Vector3 direction, float speed, int 
     shot.crit = crit;
     shot.side = side;
     shot.look = look;
+    shot.poiseScale = poiseScale;
 
     shots.push_back(shot);
 }
@@ -226,7 +228,7 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
             // flag - a thrown dagger is a weapon kill, however far it flew.
             enemy.killedBySpell = mote;
 
-            enemy.TakeDamageFrom(shot.damage, contact);
+            enemy.TakeDamageFrom(shot.damage, contact, shot.poiseScale);
 
             if (shot.crit) enemyCrit = true;
 
@@ -281,7 +283,7 @@ bool ProjectileManager::Advance(Shot &shot, float step, Level &level, Player &pl
                     if ((dx*dx + dz*dz) > def.aoeRadius*def.aoeRadius) continue;
 
                     other.killedBySpell = true;
-                    other.TakeDamageFrom(shot.damage, contact);
+                    other.TakeDamageFrom(shot.damage, contact, shot.poiseScale);
                     other.ApplyMagicEffect(school);
 
                     if (school == Magic::Blast)

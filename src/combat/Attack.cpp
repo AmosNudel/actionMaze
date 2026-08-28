@@ -180,7 +180,7 @@ MeleeResult SweepMelee(const Capsule &from, const Capsule &to, Vector3 eye,
         // grazed by a mote and finished with a sword must pay as the sword.
         enemy.killedBySpell = false;
 
-        enemy.TakeDamageFrom(damage, eye);
+        enemy.TakeDamageFrom(damage, eye, stats.poiseScale);
 
         // What actually came off, which is not what was sent: a guard may have
         // eaten most of it, and the last blow of a fight only ever lands as much as

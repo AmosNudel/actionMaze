@@ -457,6 +457,17 @@ int Player::GainExp(int amount)
         expToNext = (int)ceilf(expToNext*Config::PlayerExpGrowth);
     }
 
+    // A level is a fresh start, not just a bigger one - see RefreshHealth's own
+    // note on why raising the pool alone is not the same as filling it. Once at
+    // the end rather than once per level crossed: a kill that pays out three at
+    // once still only heals once, on the level the character actually lands on.
+    if (gained > 0)
+    {
+        RefreshHealth();
+        health = maxHealth;
+        mana = MaxMana();
+    }
+
     return gained;
 }
 

@@ -22,7 +22,7 @@ namespace
     // again to correct it to a block reaction - would leave the cross-fade reading
     // the flinch it never played as the pose to fade out of.
     //------------------------------------------------------------------------------
-    void Apply(Enemy &enemy, int amount, bool blocked)
+    void Apply(Enemy &enemy, int amount, bool blocked, float poiseScale)
     {
         if ((amount <= 0) || !enemy.IsAlive()) return;
 
@@ -85,7 +85,7 @@ namespace
 
         if (threshold > 0.0f)
         {
-            enemy.poise += (float)amount;
+            enemy.poise += (float)amount*poiseScale;
 
             if (enemy.poise < threshold) return;
 
@@ -148,7 +148,7 @@ void Enemy::Shove(Vector3 direction, float speed)
 
 void Enemy::TakeDamage(int amount)
 {
-    Apply(*this, amount, false);
+    Apply(*this, amount, false, 1.0f);
 }
 
 //----------------------------------------------------------------------------------
@@ -162,7 +162,7 @@ void Enemy::TakeDamage(int amount)
 // found to reach it - so InCone is being used purely for the angle, which is why
 // the reach argument is absurd. Same shape as Player::TakeDamageFrom.
 //----------------------------------------------------------------------------------
-void Enemy::TakeDamageFrom(int amount, Vector3 source)
+void Enemy::TakeDamageFrom(int amount, Vector3 source, float poiseScale)
 {
     if ((amount <= 0) || !IsAlive()) return;
 
@@ -177,7 +177,7 @@ void Enemy::TakeDamageFrom(int amount, Vector3 source)
         if (amount < 1) amount = 1;
     }
 
-    Apply(*this, amount, blocked);
+    Apply(*this, amount, blocked, poiseScale);
 }
 
 //----------------------------------------------------------------------------------

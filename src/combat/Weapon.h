@@ -125,6 +125,19 @@ struct WeaponStats
     // the crowd answer - a weapon that pushes buys the room to swing again.
     float knockback = 0.0f;
 
+    //------------------------------------------------------------------------------
+    // How much of this weapon's damage also counts toward an enemy's poise meter -
+    // see Enemy::TakeDamageFrom and Config::EnemyPoiseRecovery. 1.0 by default, set
+    // lower for the Throw style (Config::ThrowPoiseScale).
+    //
+    // A ranged weapon that filled the meter exactly as fast as a melee one at the
+    // same DPS would still stagger a body just as hard from a distance nothing can
+    // answer from - which is backwards for the one weapon built to be used that
+    // way. Melee weapons leave this at 1.0: closing the distance is already the
+    // cost of using one.
+    //------------------------------------------------------------------------------
+    float poiseScale = 1.0f;
+
     // What kind of thing this is, for a list rather than for combat - see
     // WeaponTag above.
     unsigned tags = 0;

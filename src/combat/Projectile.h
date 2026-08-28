@@ -116,8 +116,12 @@ public:
     // Kept alongside it rather than re-derived, because a shot re-rolling on
     // impact would crit eventually just by living long enough. Only ever read
     // back for a shot AtEnemies - see the note on Update's return.
+    //
+    // `poiseScale` rides along to Enemy::TakeDamageFrom on impact - see
+    // WeaponStats::poiseScale. Meaningless for a shot AtPlayer, which has no
+    // poise system to speak of; left at the default there.
     void Spawn(Vector3 from, Vector3 direction, float speed, int damage, ProjectileSide side,
-               ProjectileLook look = ProjectileLook{}, bool crit = false);
+               ProjectileLook look = ProjectileLook{}, bool crit = false, float poiseScale = 1.0f);
 
     // `vfx` is where a mote goes when it stops. Passed in rather than held because
     // the effect pool is shared with everything else that flashes, and a projectile
@@ -148,6 +152,7 @@ private:
         float life = 0.0f;      // Counts down; a shot that hits nothing expires
         int damage = 0;
         bool crit = false;      // See the note on Spawn
+        float poiseScale = 1.0f;   // See the note on Spawn
         ProjectileSide side = ProjectileSide::AtPlayer;
         ProjectileLook look;    // Resolved at spawn: never carries a null model
 
